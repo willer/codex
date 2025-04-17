@@ -242,14 +242,7 @@ let config = loadConfig(undefined, undefined, {
 // IMPORTANT: Make a deep copy to preserve the original values from loadConfig
 const originalConfig = { ...config };
 
-if (process.env.DEBUG) {
-  console.error("DEBUG: Original config from loadConfig:", {
-    twoAgent: originalConfig.twoAgent,
-    architectModel: originalConfig.architectModel,
-    coderModel: originalConfig.coderModel,
-    model: originalConfig.model
-  });
-}
+// Debug logging removed
 
 // Parse command line arguments
 const prompt = cli.input[0];
@@ -257,20 +250,7 @@ const model = cli.flags.model;
 const imagePaths = cli.flags.image as Array<string> | undefined;
 const modelExplicitlySet = model !== undefined;
 
-// Detailed debugging for flag detection
-if (process.env.DEBUG) {
-  console.error("DEBUG: Raw cli.flags:", {
-    model: cli.flags.model,
-    twoAgent: cli.flags.twoAgent,
-    // Show the actual type and value
-    twoAgentType: typeof cli.flags.twoAgent
-  });
-  
-  // Check if the --no-two-agent flag was actually passed
-  const rawArgs = process.argv.slice(2);
-  console.error("DEBUG: Raw command line args:", rawArgs);
-  console.error("DEBUG: Contains --no-two-agent:", rawArgs.includes("--no-two-agent"));
-}
+// No debug statements in production code
 
 // Important: Check if the --no-two-agent flag was actually passed on the command line
 const rawArgs = process.argv.slice(2);
@@ -285,7 +265,6 @@ const twoAgentExplicitlyDisabled = noTwoAgentExplicitlyPassed;
 // Apply configuration logic based on command line flags
 // 1. If explicit model is provided, disable two-agent mode
 if (modelExplicitlySet) {
-  if (process.env.DEBUG) console.error("DEBUG: -m flag specified, disabling two-agent mode");
   config = {
     ...config,
     model: model as string,
@@ -296,34 +275,18 @@ if (modelExplicitlySet) {
 } 
 // 2. Handle explicit two-agent flags
 else if (twoAgentExplicitlyEnabled) {
-  if (process.env.DEBUG) console.error("DEBUG: --two-agent flag enabled");
   config.twoAgent = true;
 } 
 else if (twoAgentExplicitlyDisabled) {
-  if (process.env.DEBUG) console.error("DEBUG: --no-two-agent flag explicitly passed, disabling two-agent mode");
   config.twoAgent = false;
 }
 // 3. No flags specified - use value from config file (already set by loadConfig)
 else {
-  if (process.env.DEBUG) {
-    if (cli.flags.twoAgent === undefined) {
-      console.error("DEBUG: No two-agent flag specified (undefined), using config value:", originalConfig.twoAgent);
-    } else {
-      console.error("DEBUG: WARNING: cli.flags.twoAgent is neither true nor false:", cli.flags.twoAgent);
-    }
-  }
   // Explicitly set to the original value from loadConfig
   config.twoAgent = originalConfig.twoAgent;
 }
 
-if (process.env.DEBUG) {
-  console.error("DEBUG: Config after applying flags:", {
-    twoAgent: config.twoAgent,
-    architectModel: config.architectModel,
-    coderModel: config.coderModel,
-    model: config.model
-  });
-}
+// Debug logging removed
 
 // Add API key to config
 config = {
@@ -331,24 +294,9 @@ config = {
   apiKey
 };
 
-// Final safety check for two-agent mode
-// If no explicit flags were provided, force restore the original twoAgent value from loadConfig
-if (!modelExplicitlySet && cli.flags.twoAgent === undefined) {
-  if (process.env.DEBUG) {
-    console.error("DEBUG: Final safety check: restoring twoAgent =", originalConfig.twoAgent);
-  }
-  config.twoAgent = originalConfig.twoAgent;
-}
+// This safety check is no longer needed since we check raw command line args
 
-// Add debug output to see the final config
-if (process.env.DEBUG) {
-  console.error("DEBUG: Final Config:", {
-    twoAgent: config.twoAgent,
-    architectModel: config.architectModel,
-    coderModel: config.coderModel,
-    model: config.model
-  });
-}
+// Debug logging removed
 
 if (!(await isModelSupportedForResponses(config.model))) {
   // eslint-disable-next-line no-console

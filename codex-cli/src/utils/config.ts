@@ -273,22 +273,10 @@ export const loadConfig = (
   // Automatically enable two-agent mode if both architect and coder models are defined
   if (!config.twoAgent && config.architectModel && config.coderModel) {
     config.twoAgent = true;
-    if (process.env.DEBUG) {
-      console.error("DEBUG: Setting twoAgent=true in loadConfig because both architectModel and coderModel are defined");
-    }
   }
   
   if (isLoggingEnabled()) {
     log(`Loaded config: ${JSON.stringify(config, null, 2)}`);
-  }
-  
-  // Extra debug
-  if (process.env.DEBUG) {
-    console.error("DEBUG: Final config from loadConfig function:", {
-      twoAgent: config.twoAgent,
-      architectModel: config.architectModel,
-      coderModel: config.coderModel
-    });
   }
 
   // -----------------------------------------------------------------------
