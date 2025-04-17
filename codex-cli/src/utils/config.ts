@@ -17,6 +17,9 @@ import { dirname, join, extname, resolve as resolvePath } from "path";
 
 export const DEFAULT_AGENTIC_MODEL = "o4-mini";
 export const DEFAULT_FULL_CONTEXT_MODEL = "gpt-4.1";
+export const DEFAULT_ARCHITECT_MODEL = "gpt-4o-mini";
+export const DEFAULT_CODER_MODEL = "gpt-3.5-turbo-0125";
+export const DEFAULT_CODER_TEMP = 0.2;
 export const DEFAULT_APPROVAL_MODE = AutoApprovalMode.SUGGEST;
 export const DEFAULT_INSTRUCTIONS = "";
 
@@ -49,6 +52,10 @@ export type StoredConfig = {
   approvalMode?: AutoApprovalMode;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
+  twoAgent?: boolean;
+  architectModel?: string;
+  coderModel?: string;
+  coderTemp?: number;
 };
 
 // Minimal config written on first run.  An *empty* model string ensures that
@@ -70,6 +77,10 @@ export type AppConfig = {
   instructions: string;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
+  twoAgent?: boolean;
+  architectModel?: string;
+  coderModel?: string;
+  coderTemp?: number;
 };
 
 // ---------------------------------------------------------------------------
@@ -253,6 +264,10 @@ export const loadConfig = (
         ? DEFAULT_FULL_CONTEXT_MODEL
         : DEFAULT_AGENTIC_MODEL),
     instructions: combinedInstructions,
+    twoAgent: storedConfig.twoAgent ?? false,
+    architectModel: storedConfig.architectModel ?? DEFAULT_ARCHITECT_MODEL,
+    coderModel: storedConfig.coderModel ?? DEFAULT_CODER_MODEL,
+    coderTemp: storedConfig.coderTemp ?? DEFAULT_CODER_TEMP,
   };
 
   // -----------------------------------------------------------------------

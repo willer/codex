@@ -77,6 +77,9 @@ const cli = meow(
     -f, --full-context         Launch in "full-context" mode which loads the entire repository
                                into context and applies a batch of edits in one go. Incompatible
                                with all other flags, except for --model.
+    
+    --two-agent                Use the two-agent architecture with separate Architect and Coder
+                               models for improved cost efficiency and determinism.
 
   Examples
     $ codex "Write and run a python program that prints ASCII art"
@@ -144,6 +147,13 @@ const cli = meow(
         aliases: ["f"],
         description: `Run in full-context editing approach. The model is given the whole code
           directory as context and performs changes in one go without acting.`,
+      },
+      
+      // Two-agent mode with Architect and Coder
+      twoAgent: {
+        type: "boolean", 
+        description: "Use the two-agent architecture with separate Architect and Coder models",
+        negatable: true, // allows --no-two-agent to disable it
       },
     },
   },
@@ -220,12 +230,25 @@ if (!apiKey) {
 }
 
 const fullContextMode = Boolean(cli.flags.fullContext);
+const twoAgentMode = Boolean(cli.flags.twoAgent);
 let config = loadConfig(undefined, undefined, {
   cwd: process.cwd(),
   disableProjectDoc: Boolean(cli.flags.noProjectDoc),
   projectDocPath: cli.flags.projectDoc as string | undefined,
   isFullContext: fullContextMode,
 });
+
+// Apply two-agent mode if explicitly set via flag or implicitly via config
+// Config-based enablement takes precedence unless explicitly disabled by flag
+if (twoAgentMode) {
+  config.twoAgent = true;
+} else if (cli.flags.twoAgent === false) {
+  // Explicitly disable if --no-two-agent is passed
+  config.twoAgent = false;
+} else if (config.architectModel && config.coderModel) {
+  // Implicitly enable if architecture-specific config is present
+  config.twoAgent = true;
+}
 
 const prompt = cli.input[0];
 const model = cli.flags.model;
@@ -400,6 +423,38 @@ async function runQuietMode({
   approvalPolicy: ApprovalPolicy;
   config: AppConfig;
 }): Promise<void> {
+  const inputItem = await createInputItem(prompt, imagePaths);
+  
+  // Use two-agent mode if enabled
+  if (config.twoAgent) {
+    // Import here to avoid circular dependencies
+    const { Orchestrator } = await import("./utils/agent/orchestrator.js");
+    
+    const orchestrator = new Orchestrator({
+      config,
+      approvalPolicy,
+      onItem: (item: ResponseItem) => {
+        // eslint-disable-next-line no-console
+        console.log(formatResponseItemForQuietMode(item));
+      },
+      onLoading: () => {
+        /* intentionally ignored in quiet mode */
+      },
+      getCommandConfirmation: (
+        _command: Array<string>,
+      ): Promise<CommandConfirmation> => {
+        return Promise.resolve({ review: ReviewDecision.NO_CONTINUE });
+      },
+      onLastResponseId: () => {
+        /* intentionally ignored in quiet mode */
+      },
+    });
+    
+    await orchestrator.run([inputItem]);
+    return;
+  }
+  
+  // Default single-agent mode
   const agent = new AgentLoop({
     model: config.model,
     config: config,
@@ -422,7 +477,6 @@ async function runQuietMode({
     },
   });
 
-  const inputItem = await createInputItem(prompt, imagePaths);
   await agent.run([inputItem]);
 }
 

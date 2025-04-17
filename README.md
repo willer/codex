@@ -5,6 +5,8 @@
 
 ![Codex demo GIF using: codex "explain this codebase to me"](./.github/demo.gif)
 
+<p align="center"><i>Now with experimental two-agent architecture for better cost efficiency</i></p>
+
 ---
 
 <details>
@@ -176,9 +178,10 @@ Both approaches are _transparent_ to everyday usage – you still run `codex` fr
 | `codex`                              | Interactive REPL                    | `codex`                              |
 | `codex "…"`                          | Initial prompt for interactive REPL | `codex "fix lint errors"`            |
 | `codex -q "…"`                       | Non‑interactive "quiet mode"        | `codex -q --json "explain utils.ts"` |
+| `codex --two-agent "…"`              | Use two-agent architecture          | `codex --two-agent "add pagination"` |
 | `codex completion <bash\|zsh\|fish>` | Print shell completion script       | `codex completion bash`              |
 
-Key flags: `--model/-m`, `--approval-mode/-a`, and `--quiet/-q`.
+Key flags: `--model/-m`, `--approval-mode/-a`, `--quiet/-q`, and `--two-agent`.
 
 ---
 
@@ -273,6 +276,12 @@ Codex looks for config files in **`~/.codex/`**.
 # ~/.codex/config.yaml
 model: o4-mini # Default model
 fullAutoErrorMode: ask-user # or ignore-and-continue
+
+# Two-agent architecture settings (experimental)
+twoAgent: true # Enable two-agent mode
+architectModel: gpt-4o-mini # Model used for planning changes
+coderModel: gpt-3.5-turbo-0125 # Model used for implementing changes
+coderTemp: 0.2 # Temperature for the coder model
 ```
 
 You can also define custom instructions:
@@ -282,6 +291,34 @@ You can also define custom instructions:
 - Always respond with emojis
 - Only use git commands if I explicitly mention you should
 ```
+
+### Two-agent Architecture
+
+The two-agent architecture is an experimental feature that separates planning from implementation:
+
+1. The **Architect** (larger model) creates a plan with clear steps
+2. The **Coder** (smaller, cheaper model) executes individual edits
+3. The **Orchestrator** coordinates the work and runs tests
+
+This feature is automatically enabled when both `architectModel` and `coderModel` are defined in your config file. You can also explicitly enable it with the `--two-agent` flag or disable it with `--no-two-agent`:
+
+```bash
+# Enable via configuration file (recommended)
+# ~/.codex/config.yaml
+architectModel: gpt-4o-mini
+coderModel: gpt-3.5-turbo-0125
+
+# Or enable explicitly via command line
+codex --two-agent "add pagination to the user list"
+
+# Force disable even if config is present
+codex --no-two-agent "simple task"
+```
+
+This approach offers several benefits:
+- Lower costs by using a smaller model for code generation
+- More deterministic results through separation of concerns
+- Better traceability of why changes were made
 
 ---
 
@@ -312,6 +349,13 @@ Not directly. It requires [Windows Subsystem for Linux (WSL2)](https://learn.mic
 <summary>Which models are supported?</summary>
 
 Any model available with [Responses API](https://platform.openai.com/docs/api-reference/responses). The default is `o4-mini`, but pass `--model gpt-4o` or set `model: gpt-4o` in your config file to override.
+
+In two-agent mode, you can configure which models to use for the Architect and Coder roles in the config file:
+```yaml
+twoAgent: true
+architectModel: gpt-4o-mini  # Larger model for planning
+coderModel: gpt-3.5-turbo-0125  # Smaller model for implementation
+```
 
 </details>
 
