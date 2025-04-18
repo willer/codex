@@ -1,4 +1,5 @@
 import type { AgentLoop } from "../../utils/agent/agent-loop.js";
+import type { AppConfig } from "../../utils/config.js";
 
 import { Box, Text } from "ink";
 import path from "node:path";
@@ -13,6 +14,7 @@ export interface TerminalHeaderProps {
   colorsByPolicy: Record<string, string | undefined>;
   agent?: AgentLoop;
   initialImagePaths?: Array<string>;
+  config?: AppConfig;
 }
 
 const TerminalHeader: React.FC<TerminalHeaderProps> = ({
@@ -24,13 +26,14 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
   colorsByPolicy,
   agent,
   initialImagePaths,
+  config,
 }) => {
   return (
     <>
       {terminalRows < 10 ? (
         // Compact header for small terminal windows
         <Text>
-          ● Codex v{version} – {PWD} – {model} –{" "}
+          ● Codex v{version} – {PWD} – {config?.twoAgent ? `${config.architectModel || model}+${config.coderModel || "gpt-3.5"}` : model} –{" "}
           <Text color={colorsByPolicy[approvalPolicy]}>{approvalPolicy}</Text>
         </Text>
       ) : (
@@ -59,9 +62,16 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
             <Text dimColor>
               <Text color="blueBright">↳</Text> workdir: <Text bold>{PWD}</Text>
             </Text>
-            <Text dimColor>
-              <Text color="blueBright">↳</Text> model: <Text bold>{model}</Text>
-            </Text>
+            {config?.twoAgent ? (
+              <Text dimColor>
+                <Text color="blueBright">↳</Text> model: <Text bold>{config.architectModel || model} + {config.coderModel || "gpt-3.5-turbo"}</Text>
+                <Text dimColor> (two-agent)</Text>
+              </Text>
+            ) : (
+              <Text dimColor>
+                <Text color="blueBright">↳</Text> model: <Text bold>{model}</Text>
+              </Text>
+            )}
             <Text dimColor>
               <Text color="blueBright">↳</Text> approval:{" "}
               <Text bold color={colorsByPolicy[approvalPolicy]} dimColor>

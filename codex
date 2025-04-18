@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Script to run the local development version of Codex CLI
 
-# Build the project first (uncomment if you want to build on every run)
-# (cd /Users/willer/GitHub/codex/codex-cli && npm run build)
+# Build the project first
+(cd /Users/willer/GitHub/codex/codex-cli && npm run build)
 
-# Run the local CLI directly
-node /Users/willer/GitHub/codex/codex-cli/dist/cli.js "$@"
+# Run the local CLI directly (debug enabled to see config)
+DEBUG=1 node /Users/willer/GitHub/codex/codex-cli/dist/cli.js "$@"

@@ -268,6 +268,7 @@ export default function TerminalChat({
               colorsByPolicy,
               agent,
               initialImagePaths,
+              config,
             }}
           />
         ) : (
