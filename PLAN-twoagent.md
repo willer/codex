@@ -12,17 +12,28 @@ attached.
 -------------------------------------------------------------------------------
 ## 1  High‑Level Design
 
-1. The **Architect** model (large & expensive) receives the full user prompt
-   plus project context once per user turn and emits a JSON **Change Plan**.
-2. The **Orchestrator** (local Node/TS code in Codex‑CLI):
-   a. Validates the Change Plan.
-   b. Fans out each `edit` / `command` item to the **Coder** model (small & cheap).
-   c. Applies returned patches, runs tests/linters, and feeds back failures.
-3. The **Coder** model consumes *one* action at a time together with a minimal
-   context slice (usually just the target file) and returns an RFC‑8259 diff.
+1. The **Architect / Checker** model (o3 — *≈5× the cost of o4‑mini*) is only
+   invoked at three strategic moments per user turn:
+     a. **Planning** – translates the natural‑language request plus repo context
+      into a structured **Change Plan**.
+     b. **Mid‑flight Re‑plan** – *only* if the cheap model reports an
+      unrecoverable failure.
+     c. **Final Verification** – audits the completed diff & test log to ensure
+      it meets the original intent and global rules.*
 
-The loop continues until all actions succeed or the Architect is re‑invoked for
-re‑planning.
+2. The **Orchestrator** (local Node/TS code in Codex‑CLI):
+     a. Validates the Architect plan.
+     b. Streams each `edit`/`command` item to the **Coder** model (o4‑mini).
+     c. Applies patches, runs fast health‑checks, and decides whether to
+      continue, self‑heal (retry), or escalate back to o3.
+
+3. The **Coder** model (o4‑mini, cheap) receives *one* atomic action at a time
+   with a **minimal context slice** (usually the target file + hints) and
+   returns an `apply_patch` diff or command output.
+
+This design amortises the expensive o3 calls across many cheap o4‑mini
+iterations while still ensuring a high‑quality end‑state that is formally
+signed‑off by o3.
 
 -------------------------------------------------------------------------------
 ## 2  Key Components & Files
@@ -102,8 +113,8 @@ every step; slow ones after the entire plan.
 -------------------------------------------------------------------------------
 ## 6  Context Management & Summarization
 
-Why: keep Coder within a small model’s token window (e.g. 16 k tokens for
-`gpt-3.5-turbo` is still pricey).
+Why: keep Coder within o4‑mini’s token window.  Although o4‑mini is cheaper
+than o3, flooding it with full‑repo context still wastes tokens and latency.
 
 Strategy:
 1. Give Coder **only** the file contents + action + per‑file rolling summary.
@@ -114,11 +125,14 @@ Strategy:
 -------------------------------------------------------------------------------
 ## 7  Failure & Recovery Logic
 
-* **Coder patch fails to apply** → retry once with Git reject hunks context → else escalate to Architect.
+* **Coder patch fails to apply** → retry **max 2 times** (first with raw file,
+  second with Git reject hunks context).  Escalate to Architect/Checker only if
+  both retries fail.
 * **Tests fail**:
-  - If only the edited file appears in the stack‑trace, retry Coder with failure
-    output.
-  - Otherwise escalate to Architect.
+  - If the stack‑trace is localised to the edited file(s), give Coder one
+    self‑healing attempt using the failure log as additional context.
+  - Escalate to Architect/Checker if the failure spans multiple untouched
+    files or persists after the retry.
 * **Architect JSON invalid** → call Architect again with validation error
   message prepended.
 
@@ -129,8 +143,8 @@ Add to existing `config.ts` loader:
 
 ```toml
 two_agent      = true            # opt‑in
-architect_model = "gpt-4o-mini"
-coder_model     = "gpt-3.5-turbo-0125"
+architect_model = "o3"
+coder_model     = "o4-mini"
 coder_temp      = 0.2
 ```
 
@@ -140,8 +154,10 @@ CLI flag `--two-agent` overrides config file.
 ## 9  Telemetry & Cost Tracking
 
 * Record tokens, latency, cost per model call.
-* JSONL log per session: `{ ts, role, tokens_in, tokens_out, cost_usd }`.
-* Surface summary at end of session to prove savings.
+* JSONL log per session: `{ ts, role, model, tokens_in, tokens_out, cost_usd }`.
+* Surface a **cost‑savings report** at the end of the session that compares the
+  actual spend against a hypothetical “all‑o3” baseline.  This makes the
+  5× difference between o3 and o4‑mini tangible.
 
 -------------------------------------------------------------------------------
 ## 10  Security Considerations
@@ -181,6 +197,36 @@ CLI flag `--two-agent` overrides config file.
 1. Do we allow the Architect to specify *new* files, or restrict to edits only?
 2. Should `command` support arbitrary shell or a curated set of “runners”?
 3. Where to persist partial session state if CLI crashes mid‑plan?
+
+-------------------------------------------------------------------------------
+## 15  Future Evolution: Task() Tool Integration
+
+Evolve the two-agent architecture toward a more flexible system inspired by Claude Code's Task() tool:
+
+```typescript
+// Conceptual API:
+Task(role: string, instruction: string, options?: TaskOptions): TaskResult;
+```
+
+Key enhancements:
+1. **Flexible Role System**: Beyond Architect/Coder, add specialized roles like Reviewer, Tester, DevOps
+2. **Nested Tasks**: Allow agents to spawn sub-tasks handled by specialized agents
+3. **Full Tool Access**: Agents invoked via Task() can use the full range of tools:
+   - File operations (read/write/edit)
+   - Shell commands (controlled by the same security policies)
+   - Searches and analyses
+
+Benefits:
+- **Composition**: Complex workflows can be broken down into specialized sub-tasks
+- **Expertise**: Delegate to agents with appropriate context/specialization
+- **Efficiency**: Right-size model for each aspect of the task
+- **Independence**: Let sub-agents work with clear, focused objectives
+
+Implementation approach:
+1. Start with current two-agent pipeline as the foundation
+2. Abstract into a general Task() API that maintains same orchestration patterns
+3. Support basic role definitions (Architect, Coder) first, expand later
+4. Add robust context passing between parent and child tasks
 
 -------------------------------------------------------------------------------
 *End of file*
