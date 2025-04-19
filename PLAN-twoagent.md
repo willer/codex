@@ -216,7 +216,7 @@ Core roles in the system:
 - **Architect**: Plans technical implementation, makes architectural decisions (uses o3)
 - **Coder**: Implements specific coding tasks from the plan (uses o4-mini)
 - **Tester**: Verifies code changes against requirements (uses o4-mini)
-- **Reviewer**: Performs code reviews and quality checks (uses o4-mini)
+- **Reviewer**: Performs code reviews, ensures alignment with architecture and SDLC (uses o3)
 
 Additional specialist roles can be added as needed (DevOps, Security, Data Scientist, etc.).
 
@@ -229,7 +229,7 @@ orchestrator = "o4-mini"  # Coordination doesn't need the most powerful model
 architect = "o3"          # Complex planning benefits from the most capable model
 coder = "o4-mini"         # Implementation with clear guidance uses cheaper model
 tester = "o4-mini"        # Testing with clear criteria uses cheaper model
-reviewer = "o4-mini"      # Code review with clear standards uses cheaper model
+reviewer = "o3"           # Code review requires deep understanding of architecture/SDLC
 ```
 
 The system would always support overriding with a global model:
@@ -268,7 +268,7 @@ No configurable behaviors or alternative workflows - just one well-designed appr
 ### 15.6 Implementation Plan
 
 1. Refactor the existing Orchestrator from code logic to an AI agent role
-2. Define the role registry with SOTA defaults (o3 for Architect, o4-mini for others)
+2. Define the role registry with SOTA defaults (o3 for Architect and Reviewer, o4-mini for others)
 3. Build context isolation system for each role
 4. Implement the sequential coordination workflow
 5. Update config system to support role-specific model assignment
