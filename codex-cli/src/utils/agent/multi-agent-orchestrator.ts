@@ -108,11 +108,21 @@ export class MultiAgentOrchestrator {
    * Initialize the agent registry with all available agents
    */
   private initializeAgents(): void {
-    // Initialize the Orchestrator agent
-    this.agents.set(AgentRole.ORCHESTRATOR, new OrchestratorAgent(this.openai));
+    // Import agent implementations
+    const { 
+      OrchestratorAgent,
+      ArchitectAgent,
+      CoderAgent,
+      TesterAgent,
+      ReviewerAgent
+    } = require('./agents');
     
-    // Other agents will be initialized as needed
-    // TODO: Implement the other agent types (Architect, Coder, Tester, Reviewer)
+    // Initialize all agents
+    this.agents.set(AgentRole.ORCHESTRATOR, new OrchestratorAgent(this.openai));
+    this.agents.set(AgentRole.ARCHITECT, new ArchitectAgent(this.openai));
+    this.agents.set(AgentRole.CODER, new CoderAgent(this.openai));
+    this.agents.set(AgentRole.TESTER, new TesterAgent(this.openai));
+    this.agents.set(AgentRole.REVIEWER, new ReviewerAgent(this.openai));
   }
   
   /**
@@ -309,9 +319,54 @@ export class MultiAgentOrchestrator {
       return existingAgent;
     }
     
-    // For now, just return the Orchestrator for all roles
-    // TODO: Implement the other agent types
-    return this.agents.get(AgentRole.ORCHESTRATOR)!;
+    // If agent is not already initialized, create it now
+    try {
+      const { 
+        OrchestratorAgent,
+        ArchitectAgent,
+        CoderAgent,
+        TesterAgent,
+        ReviewerAgent
+      } = require('./agents');
+      
+      let newAgent: Agent;
+      
+      switch (role) {
+        case AgentRole.ARCHITECT:
+          newAgent = new ArchitectAgent(this.openai);
+          break;
+        case AgentRole.CODER:
+          newAgent = new CoderAgent(this.openai);
+          break;
+        case AgentRole.TESTER:
+          newAgent = new TesterAgent(this.openai);
+          break;
+        case AgentRole.REVIEWER:
+          newAgent = new ReviewerAgent(this.openai);
+          break;
+        default:
+          // Default to Orchestrator
+          newAgent = new OrchestratorAgent(this.openai);
+      }
+      
+      // Store the new agent
+      this.agents.set(role, newAgent);
+      return newAgent;
+    } catch (error) {
+      log(`Error creating agent for role ${role}: ${error}`);
+      
+      // Fall back to orchestrator if available
+      const orchestrator = this.agents.get(AgentRole.ORCHESTRATOR);
+      if (orchestrator) {
+        return orchestrator;
+      }
+      
+      // If no orchestrator, create one as a last resort
+      const { OrchestratorAgent } = require('./agents');
+      const fallbackAgent = new OrchestratorAgent(this.openai);
+      this.agents.set(AgentRole.ORCHESTRATOR, fallbackAgent);
+      return fallbackAgent;
+    }
   }
   
   /**
