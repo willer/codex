@@ -490,30 +490,58 @@ async function runQuietMode({
   
   // Use multi-agent mode if enabled
   if (config.multiAgent) {
-    // Import here to avoid circular dependencies
-    const { Orchestrator } = await import("./utils/agent/orchestrator.js");
-    
-    const orchestrator = new Orchestrator({
-      config,
-      approvalPolicy,
-      onItem: (item: ResponseItem) => {
-        // eslint-disable-next-line no-console
-        console.log(formatResponseItemForQuietMode(item));
-      },
-      onLoading: () => {
-        /* intentionally ignored in quiet mode */
-      },
-      getCommandConfirmation: (
-        _command: Array<string>,
-      ): Promise<CommandConfirmation> => {
-        return Promise.resolve({ review: ReviewDecision.NO_CONTINUE });
-      },
-      onLastResponseId: () => {
-        /* intentionally ignored in quiet mode */
-      },
-    });
-    
-    await orchestrator.run([inputItem]);
+    try {
+      // Import here to avoid circular dependencies
+      const { MultiAgentOrchestrator } = await import("./utils/agent/multi-agent-orchestrator.js");
+      
+      const orchestrator = new MultiAgentOrchestrator({
+        config,
+        approvalPolicy,
+        onItem: (item: ResponseItem) => {
+          // eslint-disable-next-line no-console
+          console.log(formatResponseItemForQuietMode(item));
+        },
+        onLoading: () => {
+          /* intentionally ignored in quiet mode */
+        },
+        getCommandConfirmation: (
+          _command: Array<string>,
+        ): Promise<CommandConfirmation> => {
+          return Promise.resolve({ review: ReviewDecision.NO_CONTINUE });
+        },
+        onLastResponseId: () => {
+          /* intentionally ignored in quiet mode */
+        },
+      });
+      
+      await orchestrator.run([inputItem]);
+    } catch (error) {
+      // If the new orchestrator fails, fall back to the legacy one
+      console.error("Error using multi-agent orchestrator, falling back to legacy mode:", error);
+      
+      const { Orchestrator } = await import("./utils/agent/orchestrator.js");
+      const orchestrator = new Orchestrator({
+        config,
+        approvalPolicy,
+        onItem: (item: ResponseItem) => {
+          // eslint-disable-next-line no-console
+          console.log(formatResponseItemForQuietMode(item));
+        },
+        onLoading: () => {
+          /* intentionally ignored in quiet mode */
+        },
+        getCommandConfirmation: (
+          _command: Array<string>,
+        ): Promise<CommandConfirmation> => {
+          return Promise.resolve({ review: ReviewDecision.NO_CONTINUE });
+        },
+        onLastResponseId: () => {
+          /* intentionally ignored in quiet mode */
+        },
+      });
+      
+      await orchestrator.run([inputItem]);
+    }
     return;
   }
   

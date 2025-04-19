@@ -98,106 +98,66 @@ async function generateCommandExplanation(
 
     if (error instanceof Error) {
       // Include specific error message for better debugging
-      errorMessage = `Unable to generate explanation: ${error.message}`;
-
-      // If it's an API error, check for more specific information
-      if ("status" in error && typeof error.status === "number") {
-        // Handle API-specific errors
-        if (error.status === 401) {
-          errorMessage =
-            "Unable to generate explanation: API key is invalid or expired.";
-        } else if (error.status === 429) {
-          errorMessage =
-            "Unable to generate explanation: Rate limit exceeded. Please try again later.";
-        } else if (error.status >= 500) {
-          errorMessage =
-            "Unable to generate explanation: OpenAI service is currently unavailable. Please try again later.";
-        }
-      }
+      errorMessage += ` (${error.message})`;
     }
 
     return errorMessage;
   }
 }
 
+/**
+ * Terminal chat component that manages inputs, messages, history, etc.
+ */
 export default function TerminalChat({
   config,
-  prompt: _initialPrompt,
-  imagePaths: _initialImagePaths,
+  prompt,
+  imagePaths,
   approvalPolicy: initialApprovalPolicy,
   additionalWritableRoots,
   fullStdout,
-}: Props): React.ReactElement {
-  // Desktop notification setting
-  const notify = config.notify;
-  const [model, setModel] = useState<string>(config.model);
-  const [lastResponseId, setLastResponseId] = useState<string | null>(null);
+}: Props): JSX.Element {
   const [items, setItems] = useState<Array<ResponseItem>>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  // Allow switching approval modes at runtime via an overlay.
+  const [thinkingTimeSec, setThinkingTimeSec] = useState<number>(0);
+  const [overlayMode, setOverlayMode] = useState<
+    "none" | "history" | "model" | "help" | "approval" | "onboarding"
+  >("none");
+  const [model, setModel] = useState<string>(() => config.model);
+  const [availableModels, setAvailableModels] = useState<Array<string>>([]);
   const [approvalPolicy, setApprovalPolicy] = useState<ApprovalPolicy>(
     initialApprovalPolicy,
   );
-  const [thinkingSeconds, setThinkingSeconds] = useState(0);
-  const handleCompact = async () => {
-    setLoading(true);
-    try {
-      const summary = await generateCompactSummary(items, model);
-      setItems([
-        {
-          id: `compact-${Date.now()}`,
-          type: "message",
-          role: "assistant",
-          content: [{ type: "output_text", text: summary }],
-        } as ResponseItem,
-      ]);
-    } catch (err) {
-      setItems((prev) => [
-        ...prev,
-        {
-          id: `compact-error-${Date.now()}`,
-          type: "message",
-          role: "system",
-          content: [
-            { type: "input_text", text: `Failed to compact context: ${err}` },
-          ],
-        } as ResponseItem,
-      ]);
-    } finally {
-      setLoading(false);
+  const [lastResponseId, setLastResponseId] = useState<string | null>(null);
+  const { terminalRows } = useTerminalSize();
+  const agentRef = useRef<any>();
+  const [, forceUpdate] = useState<unknown>();
+
+  const agent = agentRef.current;
+
+  const { confirm: requestConfirmation } = useConfirmation();
+
+  // Only show this when displaying in full-detail mode
+  const contextPercentRemaining = useMemo(() => {
+    const mostRecentItems = items.slice(-20);
+    return calculateContextPercentRemaining(mostRecentItems) * 100;
+  }, [items]);
+
+  useEffect(() => {
+    getAvailableModels().then((models) => {
+      // TS Validation: models must be string[] per the function signature
+      setAvailableModels(models || []);
+    });
+  }, []);
+
+  useEffect(() => {
+    if (prompt) {
+      (async () => {
+        log(`Processing prompt: ${prompt}`);
+        const item = await createInputItem(prompt, imagePaths);
+        agentRef.current?.run([item]);
+      })();
     }
-  };
-  const {
-    requestConfirmation,
-    confirmationPrompt,
-    explanation,
-    submitConfirmation,
-  } = useConfirmation();
-  const [overlayMode, setOverlayMode] = useState<
-    "none" | "history" | "model" | "approval" | "help"
-  >("none");
-
-  const [initialPrompt, setInitialPrompt] = useState(_initialPrompt);
-  const [initialImagePaths, setInitialImagePaths] =
-    useState(_initialImagePaths);
-
-  const PWD = React.useMemo(() => shortCwd(), []);
-
-  // Keep a single AgentLoop instance alive across renders;
-  // recreate only when model/instructions/approvalPolicy change.
-  const agentRef = React.useRef<AgentLoop>();
-  const [, forceUpdate] = React.useReducer((c) => c + 1, 0); // trigger re‑render
-
-  // ────────────────────────────────────────────────────────────────
-  // DEBUG: log every render w/ key bits of state
-  // ────────────────────────────────────────────────────────────────
-  if (isLoggingEnabled()) {
-    log(
-      `render – agent? ${Boolean(agentRef.current)} loading=${loading} items=${
-        items.length
-      }`,
-    );
-  }
+  }, [prompt, imagePaths]);
 
   useEffect(() => {
     if (isLoggingEnabled()) {
@@ -212,64 +172,146 @@ export default function TerminalChat({
     // Tear down any existing loop before creating a new one
     agentRef.current?.terminate();
 
-    agentRef.current = new AgentLoop({
-      model,
-      config,
-      instructions: config.instructions,
-      approvalPolicy,
-      additionalWritableRoots,
-      onLastResponseId: setLastResponseId,
-      onItem: (item) => {
-        log(`onItem: ${JSON.stringify(item)}`);
-        setItems((prev) => {
-          const updated = uniqueById([...prev, item as ResponseItem]);
-          saveRollout(updated);
-          return updated;
-        });
-      },
-      onLoading: setLoading,
-      getCommandConfirmation: async (
-        command: Array<string>,
-        applyPatch: ApplyPatchCommand | undefined,
-      ): Promise<CommandConfirmation> => {
-        log(`getCommandConfirmation: ${command}`);
-        const commandForDisplay = formatCommandForDisplay(command);
+    const initializeAgent = async () => {
+      try {
+        // Check if multi-agent mode is enabled
+        if (config.multiAgent) {
+          try {
+            // Import MultiAgentOrchestrator dynamically
+            const { MultiAgentOrchestrator } = await import("../../utils/agent/multi-agent-orchestrator.js");
+            
+            // Create MultiAgentOrchestrator instance
+            agentRef.current = new MultiAgentOrchestrator({
+              config,
+              approvalPolicy,
+              onLastResponseId: setLastResponseId,
+              onItem: (item) => {
+                log(`onItem: ${JSON.stringify(item)}`);
+                setItems((prev) => {
+                  const updated = uniqueById([...prev, item as ResponseItem]);
+                  saveRollout(updated);
+                  return updated;
+                });
+              },
+              onLoading: setLoading,
+              getCommandConfirmation: async (
+                command: Array<string>,
+                applyPatch: ApplyPatchCommand | undefined,
+              ): Promise<CommandConfirmation> => {
+                log(`getCommandConfirmation: ${command}`);
+                const commandForDisplay = formatCommandForDisplay(command);
+  
+                // First request for confirmation
+                let { decision: review, customDenyMessage } = await requestConfirmation(
+                  <TerminalChatToolCallCommand commandForDisplay={commandForDisplay} />,
+                );
+  
+                // If the user wants an explanation, generate one and ask again
+                if (review === ReviewDecision.EXPLAIN) {
+                  log(`Generating explanation for command: ${commandForDisplay}`);
+  
+                  // Generate an explanation using the same model
+                  const explanation = await generateCommandExplanation(command, model);
+                  log(`Generated explanation: ${explanation}`);
+  
+                  // Ask for confirmation again, but with the explanation
+                  const confirmResult = await requestConfirmation(
+                    <TerminalChatToolCallCommand
+                      commandForDisplay={commandForDisplay}
+                      explanation={explanation}
+                    />,
+                  );
+  
+                  // Update the decision based on the second confirmation
+                  review = confirmResult.decision;
+                  customDenyMessage = confirmResult.customDenyMessage;
+  
+                  // Return the final decision with the explanation
+                  return { review, customDenyMessage, applyPatch, explanation };
+                }
+  
+                return { review, customDenyMessage, applyPatch };
+              },
+            });
+          } catch (error) {
+            // Log error and fall back to legacy AgentLoop
+            log(`Error initializing MultiAgentOrchestrator: ${error}, falling back to legacy mode`);
+            
+            createLegacyAgentLoop();
+          }
+        } else {
+          // Legacy single-agent mode
+          createLegacyAgentLoop();
+        }
+        
+        // Force a render so JSX below can "see" the freshly created agent
+        forceUpdate({});
+      } catch (error) {
+        log(`Error initializing agent: ${error}`);
+      }
+    };
+    
+    // Helper function to create the legacy AgentLoop
+    function createLegacyAgentLoop() {
+      agentRef.current = new AgentLoop({
+        model,
+        config,
+        instructions: config.instructions,
+        approvalPolicy,
+        additionalWritableRoots,
+        onLastResponseId: setLastResponseId,
+        onItem: (item) => {
+          log(`onItem: ${JSON.stringify(item)}`);
+          setItems((prev) => {
+            const updated = uniqueById([...prev, item as ResponseItem]);
+            saveRollout(updated);
+            return updated;
+          });
+        },
+        onLoading: setLoading,
+        getCommandConfirmation: async (
+          command: Array<string>,
+          applyPatch: ApplyPatchCommand | undefined,
+        ): Promise<CommandConfirmation> => {
+          log(`getCommandConfirmation: ${command}`);
+          const commandForDisplay = formatCommandForDisplay(command);
 
-        // First request for confirmation
-        let { decision: review, customDenyMessage } = await requestConfirmation(
-          <TerminalChatToolCallCommand commandForDisplay={commandForDisplay} />,
-        );
-
-        // If the user wants an explanation, generate one and ask again
-        if (review === ReviewDecision.EXPLAIN) {
-          log(`Generating explanation for command: ${commandForDisplay}`);
-
-          // Generate an explanation using the same model
-          const explanation = await generateCommandExplanation(command, model);
-          log(`Generated explanation: ${explanation}`);
-
-          // Ask for confirmation again, but with the explanation
-          const confirmResult = await requestConfirmation(
-            <TerminalChatToolCallCommand
-              commandForDisplay={commandForDisplay}
-              explanation={explanation}
-            />,
+          // First request for confirmation
+          let { decision: review, customDenyMessage } = await requestConfirmation(
+            <TerminalChatToolCallCommand commandForDisplay={commandForDisplay} />,
           );
 
-          // Update the decision based on the second confirmation
-          review = confirmResult.decision;
-          customDenyMessage = confirmResult.customDenyMessage;
+          // If the user wants an explanation, generate one and ask again
+          if (review === ReviewDecision.EXPLAIN) {
+            log(`Generating explanation for command: ${commandForDisplay}`);
 
-          // Return the final decision with the explanation
-          return { review, customDenyMessage, applyPatch, explanation };
-        }
+            // Generate an explanation using the same model
+            const explanation = await generateCommandExplanation(command, model);
+            log(`Generated explanation: ${explanation}`);
 
-        return { review, customDenyMessage, applyPatch };
-      },
-    });
+            // Ask for confirmation again, but with the explanation
+            const confirmResult = await requestConfirmation(
+              <TerminalChatToolCallCommand
+                commandForDisplay={commandForDisplay}
+                explanation={explanation}
+              />,
+            );
 
-    // force a render so JSX below can "see" the freshly created agent
-    forceUpdate();
+            // Update the decision based on the second confirmation
+            review = confirmResult.decision;
+            customDenyMessage = confirmResult.customDenyMessage;
+
+            // Return the final decision with the explanation
+            return { review, customDenyMessage, applyPatch, explanation };
+          }
+
+          return { review, customDenyMessage, applyPatch };
+        },
+      });
+    }
+    
+    // Initialize the agent
+    initializeAgent();
 
     if (isLoggingEnabled()) {
       log(`AgentLoop created: ${inspect(agentRef.current, { depth: 1 })}`);
@@ -281,7 +323,7 @@ export default function TerminalChat({
       }
       agentRef.current?.terminate();
       agentRef.current = undefined;
-      forceUpdate(); // re‑render after teardown too
+      forceUpdate({}); // re‑render after teardown too
     };
   }, [
     model,
@@ -297,202 +339,97 @@ export default function TerminalChat({
   useEffect(() => {
     let handle: ReturnType<typeof setInterval> | null = null;
     // Only tick the "thinking…" timer when the agent is actually processing
-    // a request *and* the user is not being asked to review a command.
-    if (loading && confirmationPrompt == null) {
-      setThinkingSeconds(0);
+    if (loading) {
       handle = setInterval(() => {
-        setThinkingSeconds((s) => s + 1);
+        setThinkingTimeSec((prev) => prev + 1);
       }, 1000);
     } else {
-      if (handle) {
-        clearInterval(handle);
-      }
-      setThinkingSeconds(0);
+      // clear the timer when loading is done
+      setThinkingTimeSec(0);
     }
+
     return () => {
       if (handle) {
         clearInterval(handle);
       }
     };
-  }, [loading, confirmationPrompt]);
+  }, [loading]);
 
-  // Notify desktop with a preview when an assistant response arrives
-  const prevLoadingRef = useRef<boolean>(false);
-  useEffect(() => {
-    // Only notify when notifications are enabled
-    if (!notify) {
-      prevLoadingRef.current = loading;
-      return;
-    }
-    if (
-      prevLoadingRef.current &&
-      !loading &&
-      confirmationPrompt == null &&
-      items.length > 0
-    ) {
-      if (process.platform === "darwin") {
-        // find the last assistant message
-        const assistantMessages = items.filter(
-          (i) => i.type === "message" && i.role === "assistant",
-        );
-        const last = assistantMessages[assistantMessages.length - 1];
-        if (last) {
-          const text = last.content
-            .map((c) => {
-              if (c.type === "output_text") {
-                return c.text;
-              }
-              return "";
-            })
-            .join("")
-            .trim();
-          const preview = text.replace(/\n/g, " ").slice(0, 100);
-          const safePreview = preview.replace(/"/g, '\\"');
-          const title = "Codex CLI";
-          const cwd = PWD;
-          exec(
-            `osascript -e 'display notification "${safePreview}" with title "${title}" subtitle "${cwd}" sound name "Ping"'`,
-          );
-        }
-      }
-    }
-    prevLoadingRef.current = loading;
-  }, [notify, loading, confirmationPrompt, items, PWD]);
-
-  // Let's also track whenever the ref becomes available
-  const agent = agentRef.current;
-  useEffect(() => {
-    if (isLoggingEnabled()) {
-      log(`agentRef.current is now ${Boolean(agent)}`);
-    }
-  }, [agent]);
-
-  // ---------------------------------------------------------------------
-  // Dynamic layout constraints – keep total rendered rows <= terminal rows
-  // ---------------------------------------------------------------------
-
-  const { rows: terminalRows } = useTerminalSize();
-
-  useEffect(() => {
-    const processInitialInputItems = async () => {
-      if (
-        (!initialPrompt || initialPrompt.trim() === "") &&
-        (!initialImagePaths || initialImagePaths.length === 0)
-      ) {
-        return;
-      }
-      const inputItems = [
-        await createInputItem(initialPrompt || "", initialImagePaths || []),
-      ];
-      // Clear them to prevent subsequent runs
-      setInitialPrompt("");
-      setInitialImagePaths([]);
-      agent?.run(inputItems);
-    };
-    processInitialInputItems();
-  }, [agent, initialPrompt, initialImagePaths]);
-
-  // ────────────────────────────────────────────────────────────────
-  // In-app warning if CLI --model isn't in fetched list
-  // ────────────────────────────────────────────────────────────────
-  useEffect(() => {
-    (async () => {
-      const available = await getAvailableModels();
-      if (model && available.length > 0 && !available.includes(model)) {
-        setItems((prev) => [
-          ...prev,
-          {
-            id: `unknown-model-${Date.now()}`,
-            type: "message",
-            role: "system",
-            content: [
-              {
-                type: "input_text",
-                text: `Warning: model "${model}" is not in the list of available models returned by OpenAI.`,
-              },
-            ],
-          },
-        ]);
-      }
-    })();
-    // run once on mount
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Just render every item in order, no grouping/collapse
-  const lastMessageBatch = items.map((item) => ({ item }));
-  const groupCounts: Record<string, number> = {};
-  const userMsgCount = items.filter(
-    (i) => i.type === "message" && i.role === "user",
-  ).length;
-
-  const contextLeftPercent = useMemo(
-    () => calculateContextPercentRemaining(items, model),
-    [items, model],
+  const [PWD, inGitRepo] = useMemo(
+    () => [shortCwd(process.cwd()), checkInGit(process.cwd())],
+    [],
   );
 
+  const compactMode = terminalRows < 10;
+
+  if (!agent) {
+    return (
+      <>
+        <Box padding={1}>
+          <Text>Starting CLI…</Text>
+        </Box>
+      </>
+    );
+  }
+
   return (
-    <Box flexDirection="column">
+    <>
       <Box flexDirection="column">
-        {agent ? (
-          <TerminalMessageHistory
-            batch={lastMessageBatch}
-            groupCounts={groupCounts}
-            items={items}
-            userMsgCount={userMsgCount}
-            confirmationPrompt={confirmationPrompt}
-            loading={loading}
-            thinkingSeconds={thinkingSeconds}
-            fullStdout={fullStdout}
-            headerProps={{
-              terminalRows,
-              version: CLI_VERSION,
-              PWD,
-              model,
-              approvalPolicy,
-              colorsByPolicy,
-              agent,
-              initialImagePaths,
-              config,
-            }}
-          />
+        <TerminalMessageHistory
+          items={items}
+          fullStdout={fullStdout}
+          size={terminalRows - 4}
+        />
+        {loading ? (
+          <>
+            <Box padding={1} paddingBottom={0}>
+              <Text>
+                {compactMode ? (
+                  <Text color="blueBright">Thinking...</Text>
+                ) : (
+                  <>
+                    <Text>Agent is</Text>{" "}
+                    <Text color="blueBright">
+                      thinking... {thinkingTimeSec ? `(${thinkingTimeSec}s)` : ""}
+                    </Text>{" "}
+                    <Text color="gray">—</Text>{" "}
+                    <Text dimColor>
+                      context remaining:{" "}
+                      <Text color="blueBright">
+                        {contextPercentRemaining.toFixed(0)}%
+                      </Text>
+                    </Text>
+                  </>
+                )}
+              </Text>
+            </Box>
+          </>
         ) : (
-          <Box>
-            <Text color="gray">Initializing agent…</Text>
-          </Box>
-        )}
-        {agent && (
           <TerminalChatInput
+            colorsByPolicy={colorsByPolicy}
+            version={CLI_VERSION}
+            PWD={PWD}
+            model={model}
+            approvalPolicy={approvalPolicy}
+            agent={agent}
+            hasLastResponse={Boolean(lastResponseId)}
+            imagePaths={imagePaths}
             loading={loading}
-            setItems={setItems}
-            isNew={Boolean(items.length === 0)}
-            setLastResponseId={setLastResponseId}
-            confirmationPrompt={confirmationPrompt}
-            explanation={explanation}
-            submitConfirmation={(
-              decision: ReviewDecision,
-              customDenyMessage?: string,
-            ) =>
-              submitConfirmation({
-                decision,
-                customDenyMessage,
-              })
-            }
-            contextLeftPercent={contextLeftPercent}
-            openOverlay={() => setOverlayMode("history")}
-            openModelOverlay={() => setOverlayMode("model")}
-            openApprovalOverlay={() => setOverlayMode("approval")}
-            openHelpOverlay={() => setOverlayMode("help")}
-            onCompact={handleCompact}
-            active={overlayMode === "none"}
-            interruptAgent={() => {
-              if (!agent) {
-                return;
-              }
+            terminalRows={terminalRows}
+            modelChoices={availableModels}
+            config={config}
+            onSelectHistory={() => setOverlayMode("history")}
+            onSelectModel={() => setOverlayMode("model")}
+            onSelectHelp={() => setOverlayMode("help")}
+            onSelectApprovalMode={() => setOverlayMode("approval")}
+            onInterruptAgent={() => {
               if (isLoggingEnabled()) {
                 log(
-                  "TerminalChat: interruptAgent invoked – calling agent.cancel()",
+                  "TerminalChatInput: interruptAgent invoked – calling agent.cancel()",
                 );
+                if (!agent) {
+                  log("TerminalChatInput: agent is not ready yet");
+                }
               }
               agent.cancel();
               setLoading(false);
@@ -599,6 +536,22 @@ export default function TerminalChat({
           <HelpOverlay onExit={() => setOverlayMode("none")} />
         )}
       </Box>
-    </Box>
+    </>
   );
 }
+
+/**
+ * Parses a git directory/repo (used in the header only)
+ */
+const checkInGit = (pwd: string): boolean => {
+  try {
+    const result = exec("git rev-parse --git-dir", {
+      cwd: pwd,
+      encoding: "utf8",
+      stdio: "ignore",
+    });
+    return true;
+  } catch {
+    return false;
+  }
+};
