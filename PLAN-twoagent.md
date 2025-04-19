@@ -199,61 +199,79 @@ CLI flag `--two-agent` overrides config file.
 3. Where to persist partial session state if CLI crashes mid‑plan?
 
 -------------------------------------------------------------------------------
-## 15  Future Evolution: n-Agent Architecture & Task() Tool Integration
+## 15  Future Evolution: Multi-Agent Architecture
 
-Evolve from two-agent to an n-agent architecture with a flexible system inspired by Claude Code's Task() tool:
+Evolve from the current implementation to a true multi-agent architecture with AI-driven orchestration:
 
-```typescript
-// Conceptual API:
-Task(role: string, instruction: string, options?: TaskOptions): TaskResult;
+### 15.1 True Multi-Agent System
+
+In this redesigned architecture, we shift from our current "two-agent mode" to a true multi-agent system where:
+
+1. **All agents are AI-driven roles**, including the Orchestrator
+2. **Every interaction flows through the Orchestrator first**
+3. **Fixed coordination pattern** with a single, well-designed workflow
+
+Core roles in the system:
+- **Orchestrator**: First point of contact, processes user input, coordinates workflow (uses o4-mini)
+- **Architect**: Plans technical implementation, makes architectural decisions (uses o3)
+- **Coder**: Implements specific coding tasks from the plan (uses o4-mini)
+- **Tester**: Verifies code changes against requirements (uses o4-mini)
+- **Reviewer**: Performs code reviews and quality checks (uses o4-mini)
+
+Additional specialist roles can be added as needed (DevOps, Security, Data Scientist, etc.).
+
+### 15.2 Model Assignment
+
+```toml
+# Default model assignments (SOTA defaults)
+[models]
+orchestrator = "o4-mini"  # Coordination doesn't need the most powerful model
+architect = "o3"          # Complex planning benefits from the most capable model
+coder = "o4-mini"         # Implementation with clear guidance uses cheaper model
+tester = "o4-mini"        # Testing with clear criteria uses cheaper model
+reviewer = "o4-mini"      # Code review with clear standards uses cheaper model
 ```
 
-### 15.1 From Two-Agent to n-Agent
+The system would always support overriding with a global model:
+```bash
+# Override all roles to use the same model
+codex -m o3 "Create a web scraper"
+```
 
-The current implementation already has three distinct personas:
-- **Orchestrator**: Manages the workflow and coordinates between agents
-- **Architect**: Plans the changes to be implemented
-- **Coder**: Implements individual components of the plan
+### 15.3 Human Team Parallel
 
-Extending to an n-agent system would add roles such as:
-- **Verifier**: Performs comprehensive testing and validation of changes
-- **Reviewer**: Conducts code reviews with quality and style focus
-- **DevOps**: Handles deployment, infrastructure, and operational tasks
-- **Security**: Performs security analysis on code changes
-- **Data Scientist**: Specializes in data analysis and ML implementations
+This approach mirrors how a human software team works:
+- Customer (User) → PM (Orchestrator) → Architect → Developers (Coders) → QA (Testers)
+- Each role has specific responsibilities and gets properly scoped context
+- The most expensive resources (like Architects) are used only where truly needed
 
-### 15.2 Model and Role Separation
+### 15.4 Context Management
 
-The n-agent approach recognizes that:
-1. One model can play multiple roles (e.g., GPT-4 could be both Architect and Reviewer)
-2. Different roles need different contexts and instructions
-3. The Orchestrator maintains process control regardless of how many roles exist
+Each role receives precisely the context it needs:
+- **Orchestrator**: User history, project overview, high-level context
+- **Architect**: Detailed system architecture, constraints, existing patterns
+- **Coder**: Specific file contents, related files, architectural guidance
+- **Tester**: Test requirements, code changes, expected behaviors
 
-### 15.3 Key Enhancements
+This minimizes context pollution and allows each agent to focus on its specific task.
 
-1. **Flexible Role System**: Define multiple specialized personas with distinct capabilities
-2. **Nested Tasks**: Allow agents to spawn sub-tasks handled by specialized agents
-3. **Full Tool Access**: Agents invoked via Task() can use the full range of tools:
-   - File operations (read/write/edit)
-   - Shell commands (controlled by the same security policies)
-   - Searches and analyses
-4. **Role-Specific Contexts**: Each role gets precisely the context it needs
+### 15.5 Fixed Workflow
 
-### 15.4 Benefits
+The system follows a consistent, sequential coordination pattern:
+1. User input → Orchestrator
+2. Orchestrator determines required steps and delegates to appropriate roles
+3. Each role executes its task and returns structured output
+4. Results flow back through Orchestrator before being presented to user
 
-- **Composition**: Complex workflows can be broken down into specialized sub-tasks
-- **Expertise**: Delegate to agents with appropriate context/specialization
-- **Efficiency**: Right-size model for each aspect of the task
-- **Independence**: Let sub-agents work with clear, focused objectives
-- **Adaptability**: Pipeline can be customized for different types of projects
+No configurable behaviors or alternative workflows - just one well-designed approach.
 
-### 15.5 Implementation Approach
+### 15.6 Implementation Plan
 
-1. Start with current two-agent pipeline as the foundation
-2. Abstract into a general Task() API that maintains same orchestration patterns
-3. Create a registry of available roles with their specific prompts and context builders
-4. Add robust context passing between parent and child tasks
-5. Implement a permission system to control which roles can access which tools
+1. Refactor the existing Orchestrator from code logic to an AI agent role
+2. Define the role registry with SOTA defaults (o3 for Architect, o4-mini for others)
+3. Build context isolation system for each role
+4. Implement the sequential coordination workflow
+5. Update config system to support role-specific model assignment
 
 -------------------------------------------------------------------------------
 *End of file*
