@@ -199,34 +199,61 @@ CLI flag `--two-agent` overrides config file.
 3. Where to persist partial session state if CLI crashes mid‑plan?
 
 -------------------------------------------------------------------------------
-## 15  Future Evolution: Task() Tool Integration
+## 15  Future Evolution: n-Agent Architecture & Task() Tool Integration
 
-Evolve the two-agent architecture toward a more flexible system inspired by Claude Code's Task() tool:
+Evolve from two-agent to an n-agent architecture with a flexible system inspired by Claude Code's Task() tool:
 
 ```typescript
 // Conceptual API:
 Task(role: string, instruction: string, options?: TaskOptions): TaskResult;
 ```
 
-Key enhancements:
-1. **Flexible Role System**: Beyond Architect/Coder, add specialized roles like Reviewer, Tester, DevOps
+### 15.1 From Two-Agent to n-Agent
+
+The current implementation already has three distinct personas:
+- **Orchestrator**: Manages the workflow and coordinates between agents
+- **Architect**: Plans the changes to be implemented
+- **Coder**: Implements individual components of the plan
+
+Extending to an n-agent system would add roles such as:
+- **Verifier**: Performs comprehensive testing and validation of changes
+- **Reviewer**: Conducts code reviews with quality and style focus
+- **DevOps**: Handles deployment, infrastructure, and operational tasks
+- **Security**: Performs security analysis on code changes
+- **Data Scientist**: Specializes in data analysis and ML implementations
+
+### 15.2 Model and Role Separation
+
+The n-agent approach recognizes that:
+1. One model can play multiple roles (e.g., GPT-4 could be both Architect and Reviewer)
+2. Different roles need different contexts and instructions
+3. The Orchestrator maintains process control regardless of how many roles exist
+
+### 15.3 Key Enhancements
+
+1. **Flexible Role System**: Define multiple specialized personas with distinct capabilities
 2. **Nested Tasks**: Allow agents to spawn sub-tasks handled by specialized agents
 3. **Full Tool Access**: Agents invoked via Task() can use the full range of tools:
    - File operations (read/write/edit)
    - Shell commands (controlled by the same security policies)
    - Searches and analyses
+4. **Role-Specific Contexts**: Each role gets precisely the context it needs
 
-Benefits:
+### 15.4 Benefits
+
 - **Composition**: Complex workflows can be broken down into specialized sub-tasks
 - **Expertise**: Delegate to agents with appropriate context/specialization
 - **Efficiency**: Right-size model for each aspect of the task
 - **Independence**: Let sub-agents work with clear, focused objectives
+- **Adaptability**: Pipeline can be customized for different types of projects
 
-Implementation approach:
+### 15.5 Implementation Approach
+
 1. Start with current two-agent pipeline as the foundation
 2. Abstract into a general Task() API that maintains same orchestration patterns
-3. Support basic role definitions (Architect, Coder) first, expand later
+3. Create a registry of available roles with their specific prompts and context builders
 4. Add robust context passing between parent and child tasks
+5. Implement a permission system to control which roles can access which tools
 
 -------------------------------------------------------------------------------
 *End of file*
