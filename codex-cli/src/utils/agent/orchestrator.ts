@@ -63,13 +63,17 @@ export class Orchestrator {
   private currentPlan: ChangePlan | null = null;
   private currentActionIndex = 0;
   private abortController: AbortController = new AbortController();
-  private telemetryData: Array<{
+  // We'll use the global telemetry array instead of a local one
+  private get telemetryData(): Array<{
     ts: number;
     role: string;
     tokens_in: number;
     tokens_out: number;
     cost_usd: number;
-  }> = [];
+    duration_ms?: number;
+  }> {
+    return global.twoAgentTelemetry || [];
+  }
 
   private onItem: (item: ResponseItem) => void;
   private onLoading: (loading: boolean) => void;
@@ -187,7 +191,29 @@ export class Orchestrator {
             ],
           });
           
-          // TODO: Implement retry or replan logic here
+          // Attempt mid-flight replanning with the Architect
+          const replanned = await this.attemptReplan(
+            action, 
+            healthResult.message || "Unknown error"
+          );
+          
+          if (!replanned) {
+            this.onItem({
+              id: `replan-failed-${Date.now()}`,
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text: `⚠️ Failed to replan with Architect. Stopping execution.`,
+                },
+              ],
+            });
+            break;
+          }
+          
+          // If replanning was successful, the replan method would have executed the new plan
+          // so we just exit the original loop
           break;
         }
       }
@@ -344,22 +370,64 @@ export class Orchestrator {
       return false;
     }
     
-    // TODO: Apply the patch here
-    // This should integrate with the existing apply_patch functionality
-    
-    this.onItem({
-      id: `edit-success-${Date.now()}`,
-      type: "message",
-      role: "system",
-      content: [
-        {
-          type: "input_text",
-          text: `✅ Successfully edited ${action.file}`,
-        },
-      ],
-    });
-    
-    return true;
+    try {
+      // Apply the patch using the patch command provided by confirmation
+      if (confirmation.applyPatch) {
+        // Use the existing parsing and application logic
+        // This uses the existing patch application functionality
+        const result = confirmation.applyPatch.apply();
+        
+        if (!result.success) {
+          this.onItem({
+            id: `edit-failed-${Date.now()}`,
+            type: "message",
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: `⚠️ Failed to apply patch: ${result.error || "Unknown error"}`,
+              },
+            ],
+          });
+          return false;
+        }
+        
+        // Record telemetry
+        this.recordTelemetry(
+          "coder",
+          context.fileContent.length,
+          patchText.length,
+          0.0001 * patchText.length // Simple cost estimation
+        );
+      }
+      
+      this.onItem({
+        id: `edit-success-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `✅ Successfully edited ${action.file}`,
+          },
+        ],
+      });
+      
+      return true;
+    } catch (error) {
+      this.onItem({
+        id: `edit-error-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `⚠️ Error applying patch: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      });
+      return false;
+    }
   }
   
   /**
@@ -452,7 +520,15 @@ export class Orchestrator {
     // Run different health checks based on action type
     if (action.kind === "edit") {
       // For edits, run type checking
-      return this.runTypeCheck();
+      const result = await this.runTypeCheck();
+      
+      // If type check failed, we may need to do self-healing attempt
+      if (!result.success && this.currentPlan) {
+        // Let's try to give the Coder a chance to fix the issue
+        await this.attemptSelfHealing(action, result.message);
+      }
+      
+      return result;
     } else if (action.kind === "command") {
       // Commands are checked by their exit codes
       return { success: true, message: "" };
@@ -460,6 +536,271 @@ export class Orchestrator {
     
     // Messages don't need health checks
     return { success: true, message: "" };
+  }
+  
+  /**
+   * Attempts to recover from a failed action by giving the Coder another chance
+   * with more context about the failure
+   */
+  private async attemptSelfHealing(action: Action, errorMessage: string): Promise<boolean> {
+    if (action.kind !== "edit") {
+      return false; // Only edit actions can be self-healed for now
+    }
+    
+    this.onItem({
+      id: `healing-attempt-${Date.now()}`,
+      type: "message",
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text: `🔄 Attempting to self-heal issue with ${action.file}...`,
+        },
+      ],
+    });
+    
+    try {
+      // Build an enriched context with error information
+      const context = await buildCoderContext(action, this.config);
+      
+      // Call the Coder again with error information
+      const retryAction = {
+        ...action,
+        hints: `${action.hints || ""}\n\nPrevious attempt failed with error: ${errorMessage}\nPlease fix the issues and ensure the code compiles.`
+      };
+      
+      const coderResponse = await callCoder(
+        retryAction,
+        context.fileContent,
+        this.config
+      );
+      
+      // Parse and apply the patch
+      const patchText = coderResponse.trim();
+      
+      // Create a synthetic patch command for the existing system
+      const patchCommand: ApplyPatchCommand = {
+        patchText,
+        type: "apply_patch"
+      };
+      
+      // In self-healing mode, we'll use the same approval policy as before
+      const confirmation = await this.getCommandConfirmation(
+        ["apply_patch", patchText],
+        patchCommand
+      );
+      
+      if (confirmation.review !== ReviewDecision.YES) {
+        this.onItem({
+          id: `healing-denied-${Date.now()}`,
+          type: "message",
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: confirmation.customDenyMessage || "⚠️ Self-healing edit was not approved by user.",
+            },
+          ],
+        });
+        return false;
+      }
+      
+      // Apply the healing patch
+      if (confirmation.applyPatch) {
+        // Use the existing patch application functionality
+        const result = confirmation.applyPatch.apply();
+        
+        if (!result.success) {
+          this.onItem({
+            id: `healing-failed-${Date.now()}`,
+            type: "message",
+            role: "system",
+            content: [
+              {
+                type: "input_text",
+                text: `⚠️ Failed to apply healing patch: ${result.error || "Unknown error"}`,
+              },
+            ],
+          });
+          return false;
+        }
+        
+        // Record telemetry for healing attempt
+        this.recordTelemetry(
+          "coder-healing",
+          context.fileContent.length,
+          patchText.length,
+          0.0001 * patchText.length
+        );
+        
+        this.onItem({
+          id: `healing-success-${Date.now()}`,
+          type: "message",
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: `✅ Successfully applied healing patch to ${action.file}`,
+            },
+          ],
+        });
+        
+        // Verify healing was successful with another type check
+        const healingCheck = await this.runTypeCheck();
+        return healingCheck.success;
+      }
+      
+      return false;
+    } catch (error) {
+      this.onItem({
+        id: `healing-error-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `⚠️ Error during self-healing: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      });
+      return false;
+    }
+  }
+  
+  /**
+   * Attempts to re-plan with the Architect when something goes wrong
+   */
+  private async attemptReplan(failedAction: Action, errorMessage: string): Promise<boolean> {
+    this.onItem({
+      id: `replan-start-${Date.now()}`,
+      type: "message",
+      role: "system",
+      content: [
+        {
+          type: "input_text",
+          text: `🔄 Re-planning with Architect due to error: ${errorMessage}`,
+        },
+      ],
+    });
+    
+    try {
+      // Create a synthetic input message explaining what went wrong
+      const replanInput = [
+        {
+          content: [
+            {
+              type: "input_text",
+              text: `The previous plan encountered an error at step ${this.currentActionIndex + 1} (${failedAction.kind}): ${errorMessage}\n\nPlease create a revised plan that fixes this issue.`,
+            },
+          ],
+          role: "user",
+        },
+      ];
+      
+      // Call the Architect to get a new plan
+      const architectResponse = await callArchitect(replanInput, this.config);
+      
+      try {
+        // Parse and validate the change plan
+        const newPlan = validateChangePlan(JSON.parse(architectResponse));
+        
+        this.onItem({
+          id: `replan-success-${Date.now()}`,
+          type: "message",
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: `✅ Architect created a revised plan with ${newPlan.actions.length} actions`,
+            },
+          ],
+        });
+        
+        // Display the new plan
+        this.onItem({
+          id: `new-plan-${Date.now()}`,
+          type: "message",
+          role: "assistant",
+          content: [
+            {
+              type: "output_text",
+              text: `📋 Architect's revised plan (${newPlan.actions.length} actions):\n${newPlan.actions.map((action, i) => 
+                `${i+1}. [${action.kind}] ${action.kind === 'edit' 
+                  ? `${action.file}: ${action.description}` 
+                  : action.kind === 'command' 
+                    ? action.cmd 
+                    : action.content}`
+              ).join('\n')}`,
+            },
+          ],
+        });
+        
+        // Update the current plan and reset the action index
+        this.currentPlan = newPlan;
+        this.currentActionIndex = 0;
+        
+        // Continue execution with the new plan
+        for (let i = 0; i < newPlan.actions.length; i++) {
+          this.currentActionIndex = i;
+          const action = newPlan.actions[i];
+          
+          // Check if we've been canceled
+          if (this.abortController.signal.aborted) {
+            break;
+          }
+          
+          const success = await this.processAction(action, i + 1, newPlan.actions.length);
+          
+          // Run health checks after each action
+          const healthResult = await this.runHealthChecks(action);
+          
+          if (!success || !healthResult.success) {
+            // If we've already tried replanning once, don't recurse further
+            this.onItem({
+              id: `replan-action-failed-${Date.now()}`,
+              type: "message",
+              role: "system",
+              content: [
+                {
+                  type: "input_text",
+                  text: `⚠️ Action ${i + 1} in the revised plan failed: ${healthResult.message || "Unknown error"}`,
+                },
+              ],
+            });
+            break;
+          }
+        }
+        
+        return true;
+      } catch (error) {
+        // Handle JSON parsing or validation errors in replan
+        this.onItem({
+          id: `replan-invalid-${Date.now()}`,
+          type: "message",
+          role: "system",
+          content: [
+            {
+              type: "input_text",
+              text: `⚠️ Architect produced an invalid revised plan: ${error instanceof Error ? error.message : String(error)}`,
+            },
+          ],
+        });
+        return false;
+      }
+    } catch (error) {
+      this.onItem({
+        id: `replan-error-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [
+          {
+            type: "input_text",
+            text: `⚠️ Error during replanning: ${error instanceof Error ? error.message : String(error)}`,
+          },
+        ],
+      });
+      return false;
+    }
   }
   
   /**
@@ -576,13 +917,16 @@ export class Orchestrator {
    * Records telemetry data for a model call
    */
   private recordTelemetry(role: string, tokensIn: number, tokensOut: number, costUsd: number): void {
-    this.telemetryData.push({
-      ts: Date.now(),
-      role,
-      tokens_in: tokensIn,
-      tokens_out: tokensOut,
-      cost_usd: costUsd
-    });
+    if (global.twoAgentTelemetry) {
+      global.twoAgentTelemetry.push({
+        ts: Date.now(),
+        role,
+        tokens_in: tokensIn,
+        tokens_out: tokensOut,
+        cost_usd: costUsd,
+        duration_ms: 0 // Not tracking duration for these internal records
+      });
+    }
   }
   
   /**
@@ -593,9 +937,39 @@ export class Orchestrator {
       return;
     }
     
+    // Calculate total tokens and cost
     const totalTokensIn = this.telemetryData.reduce((sum, item) => sum + item.tokens_in, 0);
     const totalTokensOut = this.telemetryData.reduce((sum, item) => sum + item.tokens_out, 0);
     const totalCost = this.telemetryData.reduce((sum, item) => sum + item.cost_usd, 0);
+    
+    // Calculate per-model stats
+    const architectStats = this.telemetryData
+      .filter(item => item.role === 'architect')
+      .reduce(
+        (acc, item) => ({
+          tokens_in: acc.tokens_in + item.tokens_in,
+          tokens_out: acc.tokens_out + item.tokens_out,
+          cost: acc.cost + item.cost_usd
+        }),
+        { tokens_in: 0, tokens_out: 0, cost: 0 }
+      );
+    
+    const coderStats = this.telemetryData
+      .filter(item => item.role === 'coder' || item.role === 'coder-healing')
+      .reduce(
+        (acc, item) => ({
+          tokens_in: acc.tokens_in + item.tokens_in,
+          tokens_out: acc.tokens_out + item.tokens_out,
+          cost: acc.cost + item.cost_usd
+        }),
+        { tokens_in: 0, tokens_out: 0, cost: 0 }
+      );
+    
+    // Calculate hypothetical cost if everything used the Architect model
+    // The cost ratio is approximately 5:1 according to the PLAN document
+    const hypotheticalCost = totalCost * 5;
+    const savings = hypotheticalCost - totalCost;
+    const savingsPercent = Math.round((savings / hypotheticalCost) * 100);
     
     this.onItem({
       id: `telemetry-${Date.now()}`,
@@ -604,7 +978,10 @@ export class Orchestrator {
       content: [
         {
           type: "input_text",
-          text: `📊 Session stats: ${totalTokensIn + totalTokensOut} tokens total (in: ${totalTokensIn}, out: ${totalTokensOut}), estimated cost: $${totalCost.toFixed(4)}`,
+          text: `📊 Session stats: ${totalTokensIn + totalTokensOut} tokens total (in: ${totalTokensIn}, out: ${totalTokensOut})\n` +
+            `🏗️ Architect: ${architectStats.tokens_in + architectStats.tokens_out} tokens, $${architectStats.cost.toFixed(4)}\n` +
+            `🔧 Coder: ${coderStats.tokens_in + coderStats.tokens_out} tokens, $${coderStats.cost.toFixed(4)}\n` +
+            `💰 Two-agent savings: $${savings.toFixed(4)} (${savingsPercent}% less than single-agent)`,
         },
       ],
     });

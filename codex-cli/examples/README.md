@@ -42,3 +42,4 @@ Besides **camerascii**, you can experiment with:
 - **build‑codex‑demo**: recreate the original 2021 Codex YouTube demo.
 - **impossible‑pong**: where Codex creates more difficult levels.
 - **prompt‑analyzer**: make a data science app for clustering [prompts](https://github.com/f/awesome-chatgpt-prompts).
+- **two-agent-demo**: demonstrates the Architect/Coder pipeline for more efficient and deterministic code generation.

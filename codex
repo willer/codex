@@ -1,8 +1,36 @@
 #!/usr/bin/env bash
 # Script to run the local development version of Codex CLI
+set -e
+
+# Resolve the real path of the script, following symlinks
+# This ensures we find the correct location even when called through a symlink
+SCRIPT_PATH="$0"
+while [ -L "$SCRIPT_PATH" ]; do
+  SCRIPT_PATH="$(readlink "$SCRIPT_PATH")"
+done
+
+# Get the directory where the actual script is located
+SCRIPT_DIR="$(cd "$(dirname "$SCRIPT_PATH")" && pwd)"
+
+# Set the project directory
+PROJECT_DIR="$SCRIPT_DIR"
 
 # Build the project first
-(cd /Users/willer/GitHub/codex/codex-cli && npm run build)
+(cd "$PROJECT_DIR/codex-cli" && npm run build)
 
-# Run the local CLI directly (debug enabled to see config)
-DEBUG=1 node /Users/willer/GitHub/codex/codex-cli/dist/cli.js "$@"
+# Check if --two-agent flag is present
+TWO_AGENT_MODE=false
+for arg in "$@"; do
+  if [ "$arg" == "--two-agent" ]; then
+    TWO_AGENT_MODE=true
+    break
+  fi
+done
+
+# Display a banner if in two-agent mode
+if [ "$TWO_AGENT_MODE" == "true" ]; then
+  echo -e "\033[1;32m🏗️ Running Codex with Architect+Coder pipeline\033[0m"
+fi
+
+# Run the local CLI directly
+DEBUG=1 node "$PROJECT_DIR/codex-cli/dist/cli.js" "$@"

@@ -13,6 +13,23 @@ import fs from "fs";
 import path from "path";
 import OpenAI, { APIConnectionTimeoutError } from "openai";
 
+// Define global telemetry type
+declare global {
+  var twoAgentTelemetry: Array<{
+    ts: number;
+    role: string;
+    tokens_in: number;
+    tokens_out: number;
+    cost_usd: number;
+    duration_ms: number;
+  }>;
+}
+
+// Initialize global telemetry array if it doesn't exist
+if (typeof global.twoAgentTelemetry === 'undefined') {
+  global.twoAgentTelemetry = [];
+}
+
 const MAX_RETRIES = 5;
 const RATE_LIMIT_RETRY_WAIT_MS = parseInt(
   process.env["OPENAI_RATE_LIMIT_RETRY_WAIT_MS"] || "2500",
@@ -65,6 +82,9 @@ export async function callArchitect(
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
+      // Track start time for telemetry
+      const startTime = Date.now();
+      
       const response = await oai.chat.completions.create({
         model: architectModel,
         messages: [
@@ -73,6 +93,26 @@ export async function callArchitect(
         ],
         response_format: { type: "json_object" }
       });
+      
+      // Calculate telemetry data
+      const tokensIn = response.usage?.prompt_tokens || input.toString().length / 4; // rough estimate if not provided
+      const tokensOut = response.usage?.completion_tokens || response.choices[0]?.message?.content?.length / 4;
+      const costUsd = calculateCost(architectModel, tokensIn, tokensOut);
+      
+      // Log telemetry
+      log(`Architect model call: ${tokensIn} tokens in, ${tokensOut} tokens out, $${costUsd.toFixed(6)} cost`);
+      
+      // Record telemetry in global event
+      if (global.twoAgentTelemetry) {
+        global.twoAgentTelemetry.push({
+          ts: Date.now(),
+          role: 'architect',
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          cost_usd: costUsd,
+          duration_ms: Date.now() - startTime
+        });
+      }
       
       return response.choices[0]?.message?.content || "";
     } catch (error) {
@@ -84,6 +124,37 @@ export async function callArchitect(
   }
   
   throw new Error("Failed to get response from Architect model after maximum retries");
+}
+
+/**
+ * Calculate approximate cost based on model and token counts
+ * Based on approximate pricing as of 2025
+ */
+function calculateCost(model: string, promptTokens: number, completionTokens: number): number {
+  // Default to higher tier costs if model can't be identified
+  let promptPrice = 0.0015; // per 1K tokens
+  let completionPrice = 0.0020; // per 1K tokens
+  
+  const modelLower = model.toLowerCase();
+  
+  // O3 family (equivalent to gpt-4 family)
+  if (modelLower.includes('o3') || modelLower.includes('gpt-4')) {
+    promptPrice = 0.0015;
+    completionPrice = 0.0020;
+  }
+  // O4-mini family (equivalent to gpt-4o-mini)
+  else if (modelLower.includes('o4-mini') || modelLower.includes('gpt-4o-mini')) {
+    promptPrice = 0.0003;
+    completionPrice = 0.0006;
+  }
+  // GPT-3.5 family
+  else if (modelLower.includes('gpt-3.5')) {
+    promptPrice = 0.0001;
+    completionPrice = 0.0002;
+  }
+  
+  // Calculate cost in USD
+  return (promptTokens / 1000) * promptPrice + (completionTokens / 1000) * completionPrice;
 }
 
 /**
@@ -100,6 +171,9 @@ export async function callCoder(
   
   for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
     try {
+      // Track start time for telemetry
+      const startTime = Date.now();
+      
       const response = await oai.chat.completions.create({
         model: coderModel,
         temperature: config.coderTemp || 0.2,
@@ -114,6 +188,27 @@ export async function callCoder(
           }
         ]
       });
+      
+      // Calculate telemetry data
+      const inputSize = coderPrompt.length + JSON.stringify({action, fileContent}).length;
+      const tokensIn = response.usage?.prompt_tokens || inputSize / 4; // rough estimate if not provided
+      const tokensOut = response.usage?.completion_tokens || response.choices[0]?.message?.content?.length / 4;
+      const costUsd = calculateCost(coderModel, tokensIn, tokensOut);
+      
+      // Log telemetry
+      log(`Coder model call: ${tokensIn} tokens in, ${tokensOut} tokens out, $${costUsd.toFixed(6)} cost`);
+      
+      // Record telemetry in global event
+      if (global.twoAgentTelemetry) {
+        global.twoAgentTelemetry.push({
+          ts: Date.now(),
+          role: 'coder',
+          tokens_in: tokensIn,
+          tokens_out: tokensOut,
+          cost_usd: costUsd,
+          duration_ms: Date.now() - startTime
+        });
+      }
       
       return response.choices[0]?.message?.content || "";
     } catch (error) {

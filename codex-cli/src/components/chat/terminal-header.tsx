@@ -33,7 +33,7 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
       {terminalRows < 10 ? (
         // Compact header for small terminal windows
         <Text>
-          ● Codex v{version} – {PWD} – {config?.twoAgent ? `${config.architectModel || model}+${config.coderModel || "gpt-3.5"}` : model} –{" "}
+          ● Codex v{version} – {PWD} – {config?.twoAgent ? `🏗️${config.architectModel || model}+🔧${config.coderModel || "gpt-3.5-turbo-0125"}` : model} –{" "}
           <Text color={colorsByPolicy[approvalPolicy]}>{approvalPolicy}</Text>
         </Text>
       ) : (
@@ -64,8 +64,7 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
             </Text>
             {config?.twoAgent ? (
               <Text dimColor>
-                <Text color="blueBright">↳</Text> model: <Text bold>{config.architectModel || model} + {config.coderModel || "gpt-3.5-turbo"}</Text>
-                <Text dimColor> (two-agent)</Text>
+                <Text color="blueBright">↳</Text> models: <Text bold color="green">🏗️ {config.architectModel || model}</Text> + <Text bold color="blue">🔧 {config.coderModel || "gpt-3.5-turbo-0125"}</Text>
               </Text>
             ) : (
               <Text dimColor>
