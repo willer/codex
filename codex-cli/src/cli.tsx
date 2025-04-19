@@ -80,7 +80,7 @@ const cli = meow(
                                into context and applies a batch of edits in one go. Incompatible
                                with all other flags, except for --model.
     
-    --two-agent                Use the two-agent architecture with separate Architect and Coder
+    --multi-agent              Use the multi-agent architecture with separate Architect and Coder
                                models for improved cost efficiency and determinism.
 
   Examples
@@ -163,11 +163,11 @@ const cli = meow(
           directory as context and performs changes in one go without acting.`,
       },
       
-      // Two-agent mode with Architect and Coder
-      twoAgent: {
+      // Multi-agent mode with Architect and Coder
+      multiAgent: {
         type: "boolean", 
-        description: "Use the two-agent architecture with separate Architect and Coder models",
-        negatable: true, // allows --no-two-agent to disable it
+        description: "Use the multi-agent architecture with separate Architect and Coder models",
+        negatable: true, // allows --no-multi-agent to disable it
       },
     },
   },
@@ -244,7 +244,7 @@ if (!apiKey) {
 }
 
 const fullContextMode = Boolean(cli.flags.fullContext);
-const twoAgentMode = Boolean(cli.flags.twoAgent);
+const multiAgentMode = Boolean(cli.flags.multiAgent);
 // Load the configuration from file
 let config = loadConfig(undefined, undefined, {
   cwd: process.cwd(),
@@ -266,38 +266,38 @@ const modelExplicitlySet = model !== undefined;
 
 // No debug statements in production code
 
-// Important: Check if the --no-two-agent flag was actually passed on the command line
+// Important: Check if the --no-multi-agent flag was actually passed on the command line
 const rawArgs = process.argv.slice(2);
-const noTwoAgentExplicitlyPassed = rawArgs.includes("--no-two-agent");
-const twoAgentExplicitlyPassed = rawArgs.includes("--two-agent");
+const noMultiAgentExplicitlyPassed = rawArgs.includes("--no-multi-agent");
+const multiAgentExplicitlyPassed = rawArgs.includes("--multi-agent");
 
 // Careful detection of explicit flags
 // ONLY consider explicitly passed flags, not default values from meow
-const twoAgentExplicitlyEnabled = twoAgentExplicitlyPassed;
-const twoAgentExplicitlyDisabled = noTwoAgentExplicitlyPassed;
+const multiAgentExplicitlyEnabled = multiAgentExplicitlyPassed;
+const multiAgentExplicitlyDisabled = noMultiAgentExplicitlyPassed;
 
 // Apply configuration logic based on command line flags
-// 1. If explicit model is provided, disable two-agent mode
+// 1. If explicit model is provided, disable multi-agent mode
 if (modelExplicitlySet) {
   config = {
     ...config,
     model: model as string,
     architectModel: undefined,
     coderModel: undefined,
-    twoAgent: false
+    multiAgent: false
   };
 } 
-// 2. Handle explicit two-agent flags
-else if (twoAgentExplicitlyEnabled) {
-  config.twoAgent = true;
+// 2. Handle explicit multi-agent flags
+else if (multiAgentExplicitlyEnabled) {
+  config.multiAgent = true;
 } 
-else if (twoAgentExplicitlyDisabled) {
-  config.twoAgent = false;
+else if (multiAgentExplicitlyDisabled) {
+  config.multiAgent = false;
 }
 // 3. No flags specified - use value from config file (already set by loadConfig)
 else {
   // Explicitly set to the original value from loadConfig
-  config.twoAgent = originalConfig.twoAgent;
+  config.multiAgent = originalConfig.multiAgent;
 }
 
 // Debug logging removed
@@ -488,8 +488,8 @@ async function runQuietMode({
 }): Promise<void> {
   const inputItem = await createInputItem(prompt, imagePaths);
   
-  // Use two-agent mode if enabled
-  if (config.twoAgent) {
+  // Use multi-agent mode if enabled
+  if (config.multiAgent) {
     // Import here to avoid circular dependencies
     const { Orchestrator } = await import("./utils/agent/orchestrator.js");
     

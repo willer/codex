@@ -52,7 +52,7 @@ export type StoredConfig = {
   approvalMode?: AutoApprovalMode;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
-  twoAgent?: boolean;
+  multiAgent?: boolean;
   architectModel?: string;
   coderModel?: string;
   coderTemp?: number;
@@ -84,7 +84,7 @@ export type AppConfig = {
   instructions: string;
   fullAutoErrorMode?: FullAutoErrorMode;
   memory?: MemoryConfig;
-  twoAgent?: boolean;
+  multiAgent?: boolean;
   architectModel?: string;
   coderModel?: string;
   coderTemp?: number;
@@ -278,16 +278,16 @@ export const loadConfig = (
         ? DEFAULT_FULL_CONTEXT_MODEL
         : DEFAULT_AGENTIC_MODEL),
     instructions: combinedInstructions,
-    twoAgent: storedConfig.twoAgent ?? false,
+    multiAgent: storedConfig.multiAgent ?? false,
     architectModel: storedConfig.architectModel ?? DEFAULT_ARCHITECT_MODEL,
     coderModel: storedConfig.coderModel ?? DEFAULT_CODER_MODEL,
     coderTemp: storedConfig.coderTemp ?? DEFAULT_CODER_TEMP,
     notify: storedConfig.notify === true,
   };
   
-  // Automatically enable two-agent mode if both architect and coder models are defined
-  if (!config.twoAgent && config.architectModel && config.coderModel) {
-    config.twoAgent = true;
+  // Automatically enable multi-agent mode if both architect and coder models are defined
+  if (!config.multiAgent && config.architectModel && config.coderModel) {
+    config.multiAgent = true;
   }
   
   if (isLoggingEnabled()) {

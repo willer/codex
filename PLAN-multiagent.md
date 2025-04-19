@@ -1,4 +1,4 @@
-# Two–Agent Architecture Plan for Codex‑CLI
+# Multi–Agent Architecture Plan for Codex‑CLI
 
 This document outlines how to evolve the current single‑agent Codex‑CLI into a
 **two‑stage “Architect / Coder” pipeline**.  The goals are to (1) reduce cost by
@@ -45,9 +45,9 @@ signed‑off by o3.
 | **Orchestrator** | `src/utils/agent/orchestrator.ts` | Finite‑state machine controlling the loop. |
 | **Model Wrappers** | `src/utils/agent/models.ts` | Helper to call OpenAI with role‑specific defaults. |
 | **Context Builder** | `src/utils/agent/context.ts` | Generates per‑role context slices, summaries, etc. |
-| **CLI Wiring** | `cli.tsx`, `cli_singlepass.tsx` | Gate behind `--two-agent` flag; preserve legacy path. |
+| **CLI Wiring** | `cli.tsx`, `cli_singlepass.tsx` | Gate behind `--multi-agent` flag; preserve legacy path. |
 | **Config** | `codex.toml` additions | `architect_model`, `coder_model`, `coder_max_context`. |
-| **Tests** | `tests/two_agent/*.test.ts` | Unit tests for plan validation, orchestrator logic. |
+| **Tests** | `tests/multi_agent/*.test.ts` | Unit tests for plan validation, orchestrator logic. |
 
 -------------------------------------------------------------------------------
 ## 3  Change Plan JSON Schema (draft)
@@ -142,13 +142,13 @@ Strategy:
 Add to existing `config.ts` loader:
 
 ```toml
-two_agent      = true            # opt‑in
+multi_agent      = true            # opt‑in
 architect_model = "o3"
 coder_model     = "o4-mini"
 coder_temp      = 0.2
 ```
 
-CLI flag `--two-agent` overrides config file.
+CLI flag `--multi-agent` overrides config file.
 
 -------------------------------------------------------------------------------
 ## 9  Telemetry & Cost Tracking
@@ -171,9 +171,9 @@ CLI flag `--two-agent` overrides config file.
 
 1. Unit test orchestrator transitions w/ mocked Architect & Coder.
 2. Contract tests: feed canned Architect plan → expect exact Coder diff.
-3. Integration test against a toy repo (see `tests/fixtures/twoagent-project`).
+3. Integration test against a toy repo (see `tests/fixtures/multiagent-project`).
 4. Regression: ensure legacy single‑agent flow remains identical when
-   `two_agent=false`.
+   `multi_agent=false`.
 
 -------------------------------------------------------------------------------
 ## 12  Rollout / Migration Steps (functional)
@@ -205,7 +205,7 @@ Evolve from the current implementation to a true multi-agent architecture with A
 
 ### 15.1 True Multi-Agent System
 
-In this redesigned architecture, we shift from our current "two-agent mode" to a true multi-agent system where:
+In this redesigned architecture, we shift from our current "multi-agent mode" to a true multi-agent system where:
 
 1. **All agents are AI-driven roles**, including the Orchestrator
 2. **Every interaction flows through the Orchestrator first**

@@ -1,0 +1,23 @@
+name: "Multi-Agent Architecture Demo"
+description: |
+  This example demonstrates the Architect/Coder multi-agent architecture in Codex. 
+  
+  The demo shows how the Architect plans a series of changes that are then executed by the Coder model.
+  This separation of concerns allows for a more efficient workflow, with the larger model handling
+  planning and the smaller model handling implementation details.
+
+tags:
+  - multi-agent
+  - architecture
+  - efficiency
+
+command: |
+  # Enabling multi-agent mode with automatic editing
+  codex --multi-agent --auto-edit "Create a simple TypeScript calculator function that can add, subtract, multiply, and divide numbers. Include error handling for division by zero. Then write unit tests for the calculator function in a separate file."
+
+expected_output: |
+  The example should show:
+  1. The Architect creating a plan with multiple actions
+  2. The Coder implementing each action one by one
+  3. Tests being run to verify the implementation
+  4. Telemetry showing the cost savings compared to a single-agent approach

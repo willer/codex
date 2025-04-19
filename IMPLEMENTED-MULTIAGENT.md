@@ -1,6 +1,6 @@
-# Two-Agent Architecture Implementation
+# Multi-Agent Architecture Implementation
 
-This document outlines the implementation of the two-stage "Architect / Coder" pipeline for Codex-CLI as specified in the PLAN-twoagent.md file.
+This document outlines the implementation of the two-stage "Architect / Coder" pipeline for Codex-CLI as specified in the PLAN-multiagent.md file.
 
 ## Key Components Implemented
 
@@ -27,12 +27,12 @@ This document outlines the implementation of the two-stage "Architect / Coder" p
    - Added health checks to verify operations
 
 6. **Configuration**:
-   - Updated config.ts with two-agent specific settings
+   - Updated config.ts with multi-agent specific settings
    - Added defaults for Architect and Coder models
    - Extended configuration types for new parameters
 
 7. **CLI Integration**:
-   - Added --two-agent flag to CLI
+   - Added --multi-agent flag to CLI
    - Updated runQuietMode to conditionally use the Orchestrator
 
 8. **Tests**:
@@ -42,17 +42,17 @@ This document outlines the implementation of the two-stage "Architect / Coder" p
 
 ## Usage
 
-The two-agent mode can be activated with the `--two-agent` flag:
+The multi-agent mode can be activated with the `--multi-agent` flag:
 
 ```bash
-codex --two-agent "Implement a function to calculate the factorial of a number"
+codex --multi-agent "Implement a function to calculate the factorial of a number"
 ```
 
 Configuration can be customized in the ~/.codex/config.json file:
 
 ```json
 {
-  "twoAgent": true,
+  "multiAgent": true,
   "architectModel": "gpt-4o-mini",
   "coderModel": "gpt-3.5-turbo-0125",
   "coderTemp": 0.2

@@ -15,7 +15,7 @@ import OpenAI, { APIConnectionTimeoutError } from "openai";
 
 // Define global telemetry type
 declare global {
-  var twoAgentTelemetry: Array<{
+  var multiAgentTelemetry: Array<{
     ts: number;
     role: string;
     tokens_in: number;
@@ -26,8 +26,8 @@ declare global {
 }
 
 // Initialize global telemetry array if it doesn't exist
-if (typeof global.twoAgentTelemetry === 'undefined') {
-  global.twoAgentTelemetry = [];
+if (typeof global.multiAgentTelemetry === 'undefined') {
+  global.multiAgentTelemetry = [];
 }
 
 const MAX_RETRIES = 5;
@@ -103,8 +103,8 @@ export async function callArchitect(
       log(`Architect model call: ${tokensIn} tokens in, ${tokensOut} tokens out, $${costUsd.toFixed(6)} cost`);
       
       // Record telemetry in global event
-      if (global.twoAgentTelemetry) {
-        global.twoAgentTelemetry.push({
+      if (global.multiAgentTelemetry) {
+        global.multiAgentTelemetry.push({
           ts: Date.now(),
           role: 'architect',
           tokens_in: tokensIn,
@@ -199,8 +199,8 @@ export async function callCoder(
       log(`Coder model call: ${tokensIn} tokens in, ${tokensOut} tokens out, $${costUsd.toFixed(6)} cost`);
       
       // Record telemetry in global event
-      if (global.twoAgentTelemetry) {
-        global.twoAgentTelemetry.push({
+      if (global.multiAgentTelemetry) {
+        global.multiAgentTelemetry.push({
           ts: Date.now(),
           role: 'coder',
           tokens_in: tokensIn,

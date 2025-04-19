@@ -54,7 +54,7 @@ interface OrchestratorParams {
 }
 
 /**
- * The Orchestrator manages the two-agent workflow
+ * The Orchestrator manages the multi-agent workflow
  */
 export class Orchestrator {
   private state: OrchestratorState = OrchestratorState.IDLE;
@@ -72,7 +72,7 @@ export class Orchestrator {
     cost_usd: number;
     duration_ms?: number;
   }> {
-    return global.twoAgentTelemetry || [];
+    return global.multiAgentTelemetry || [];
   }
 
   private onItem: (item: ResponseItem) => void;
@@ -98,7 +98,7 @@ export class Orchestrator {
       this.onLoading(true);
       this.abortController = new AbortController();
       
-      // Create a system message to explain the two-agent workflow
+      // Create a system message to explain the multi-agent workflow
       this.onItem({
         id: `system-${Date.now()}`,
         type: "message",
@@ -106,7 +106,7 @@ export class Orchestrator {
         content: [
           {
             type: "input_text",
-            text: "🏗️ Running in two-agent mode: Architect will plan changes, Coder will implement them.",
+            text: "🏗️ Running in multi-agent mode: Architect will plan changes, Coder will implement them.",
           },
         ],
       });
@@ -917,8 +917,8 @@ export class Orchestrator {
    * Records telemetry data for a model call
    */
   private recordTelemetry(role: string, tokensIn: number, tokensOut: number, costUsd: number): void {
-    if (global.twoAgentTelemetry) {
-      global.twoAgentTelemetry.push({
+    if (global.multiAgentTelemetry) {
+      global.multiAgentTelemetry.push({
         ts: Date.now(),
         role,
         tokens_in: tokensIn,
