@@ -170,8 +170,9 @@ function TerminalChatResponseToolCallOutput({
   message: ResponseFunctionToolCallOutputItem;
   fullStdout: boolean;
 }) {
-  const { output, metadata } = parseToolCallOutput(message.output);
-  const { exit_code, duration_seconds } = metadata;
+  // Safely parse output with defensive coding
+  const { output, metadata } = parseToolCallOutput(message.output || '');
+  const { exit_code, duration_seconds } = metadata || {};
   const metadataInfo = useMemo(
     () =>
       [
@@ -184,7 +185,10 @@ function TerminalChatResponseToolCallOutput({
         .join(", "),
     [exit_code, duration_seconds],
   );
-  let displayedContent = output;
+  
+  // Ensure output is a string
+  let displayedContent = typeof output === 'string' ? output : '';
+  
   if (message.type === "function_call_output" && !fullStdout) {
     const lines = displayedContent.split("\n");
     if (lines.length > 4) {
@@ -204,13 +208,16 @@ function TerminalChatResponseToolCallOutput({
   const colorizedContent = displayedContent
     .split("\n")
     .map((line) => {
-      if (line.startsWith("+") && !line.startsWith("++")) {
-        return chalk.green(line);
+      // Add null checks for line
+      if (line && typeof line === 'string') {
+        if (line.startsWith("+") && !line.startsWith("++")) {
+          return chalk.green(line);
+        }
+        if (line.startsWith("-") && !line.startsWith("--")) {
+          return chalk.red(line);
+        }
       }
-      if (line.startsWith("-") && !line.startsWith("--")) {
-        return chalk.red(line);
-      }
-      return line;
+      return line || '';
     })
     .join("\n");
   return (

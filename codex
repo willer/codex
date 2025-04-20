@@ -1,0 +1,9 @@
+#!/bin/bash
+
+# Make sure we're using Node.js 20
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && source "$NVM_DIR/nvm.sh"
+nvm use 20 &>/dev/null
+
+# Run codex CLI directly
+node ./codex-cli/dist/cli.js "$@"

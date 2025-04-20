@@ -16,14 +16,36 @@ export function parseToolCallOutput(toolCallOutput: string): {
   metadata: ExecOutputMetadata;
 } {
   try {
-    const { output, metadata } = JSON.parse(toolCallOutput);
+    // Handle case where toolCallOutput might be undefined
+    if (!toolCallOutput) {
+      return {
+        output: '',
+        metadata: {
+          exit_code: 0,
+          duration_seconds: 0,
+        },
+      };
+    }
+    
+    const parsed = JSON.parse(toolCallOutput);
+    // Ensure the parsed object has the expected shape
+    if (!parsed || typeof parsed !== 'object') {
+      throw new Error('Invalid JSON structure');
+    }
+    
+    const output = typeof parsed.output === 'string' ? parsed.output : '';
+    const metadata = parsed.metadata && typeof parsed.metadata === 'object' 
+      ? parsed.metadata 
+      : { exit_code: 0, duration_seconds: 0 };
+      
     return {
       output,
       metadata,
     };
   } catch (err) {
+    console.error(`Failed to parse tool call output: ${err}`);
     return {
-      output: `Failed to parse JSON result`,
+      output: `Failed to parse output: ${err instanceof Error ? err.message : 'unknown error'}`,
       metadata: {
         exit_code: 1,
         duration_seconds: 0,
