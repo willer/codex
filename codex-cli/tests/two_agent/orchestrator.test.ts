@@ -78,7 +78,8 @@ const mockConfig = {
   coderModel: "gpt-3.5-turbo",
   coderTemp: 0.2,
   instructions: "Test instructions",
-  twoAgent: true
+  twoAgent: true,
+  notify: false
 };
 
 const mockHandlers = {

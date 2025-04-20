@@ -6,7 +6,7 @@ import fs from "fs";
 import path from "path";
 import { execSync } from "child_process";
 
-const CACHE_DIR = path.join(process.env.HOME || "~", ".codex/cache");
+const CACHE_DIR = path.join(process.env["HOME"] || "~", ".codex/cache");
 
 /**
  * Ensures the cache directory exists

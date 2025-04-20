@@ -22,7 +22,26 @@ function isUserMessage(
  * Returns the maximum context length (in tokens) for a given model.
  * These numbers are best‑effort guesses and provide a basis for UI percentages.
  */
-export function maxTokensForModel(model: string): number {
+/**
+ * Return an upper‑bound on the number of context tokens for a given model
+ * name.
+ *
+ * Historically we assumed that `model` is always a non‑empty string coming
+ * from `AppConfig.model`, but in practice that value can be `undefined` while
+ * the configuration is still being initialised (for example when the user is
+ * running Codex for the very first time).  In those cases calling
+ * `toLowerCase()` would throw, crashing the CLI early in the render cycle.
+ *
+ * To make the function resilient we treat any “falsy” input as an unknown
+ * long‑context model and fall back to the most conservative default (128 k).
+ */
+export function maxTokensForModel(model: string | undefined | null): number {
+  if (!model) {
+    // Unknown model → assume the largest context window so that the progress
+    // meter doesn’t show 0 % remaining.
+    return 128_000;
+  }
+
   const lower = model.toLowerCase();
   if (lower.includes("32k")) {
     return 32000;

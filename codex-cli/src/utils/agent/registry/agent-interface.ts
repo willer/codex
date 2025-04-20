@@ -126,7 +126,7 @@ export function buildContextForAgent(role: AgentRole, context: AgentContext): Co
     case AgentRole.CODER:
       // Coder needs specific file contents
       baseContext.relevantHistory = context.conversationHistory.filter(
-        msg => msg.role === "system" || msg.metadata?.fromRole === AgentRole.ARCHITECT
+        msg => msg.role === "system" || msg.metadata?.["fromRole"] === AgentRole.ARCHITECT
       );
       baseContext.relevantRepoContext.relevantFiles = context.repoContext.relevantFiles;
       baseContext.relevantRepoContext.fileContents = context.repoContext.fileContents;
@@ -142,8 +142,8 @@ export function buildContextForAgent(role: AgentRole, context: AgentContext): Co
       // Tester needs modified files and test context
       baseContext.relevantHistory = context.conversationHistory.filter(
         msg => msg.role === "system" || 
-               msg.metadata?.fromRole === AgentRole.ARCHITECT ||
-               msg.metadata?.fromRole === AgentRole.CODER
+               msg.metadata?.["fromRole"] === AgentRole.ARCHITECT ||
+               msg.metadata?.["fromRole"] === AgentRole.CODER
       );
       baseContext.relevantRepoContext.relevantFiles = context.repoContext.relevantFiles;
       baseContext.relevantRepoContext.fileContents = context.repoContext.fileContents;

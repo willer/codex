@@ -63,3 +63,28 @@ declare module "diff" {
     options?: { context?: number },
   ): string;
 }
+
+// Global variable declarations for agent telemetry
+declare global {
+  namespace NodeJS {
+    interface Global {
+      twoAgentTelemetry: Array<{
+        ts: number;
+        role: string;
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+        duration_ms?: number;
+      }>;
+      
+      multiAgentTelemetry: Array<{
+        ts: number;
+        role: string;
+        tokens_in: number;
+        tokens_out: number;
+        cost_usd: number;
+        duration_ms?: number;
+      }>;
+    }
+  }
+}

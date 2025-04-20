@@ -4,14 +4,17 @@ import type { ResponseItem } from "openai/resources/responses/responses.mjs";
 import type { ApplyPatchCommand } from "../../approvals.js";
 import type { ReviewDecision } from "./review.js";
 
-import { Agent, AgentContext, AgentResponse, Message } from "./registry/agent-interface";
-import { AgentRole, defaultAgentConfigs } from "./registry/agent-roles";
+import { Agent, AgentContext, AgentResponse } from "./registry/agent-interface";
+import { AgentRole } from "./registry/agent-roles";
 import { OrchestratorAgent } from "./agents/orchestrator-agent";
+import { ArchitectAgent } from "./agents/architect-agent";
+import { CoderAgent } from "./agents/coder-agent";
+import { TesterAgent } from "./agents/tester-agent";
+import { ReviewerAgent } from "./agents/reviewer-agent";
 import { WorkflowEngine, WorkflowPlan, WorkflowStep } from "./workflow/workflow-engine";
-import { log, isLoggingEnabled } from "./log.js";
+import { log } from "./log.js";
 import OpenAI from "openai";
 import { CLI_VERSION, ORIGIN, getSessionId } from "../session.js";
-import fs from "fs";
 import path from "path";
 
 /**
@@ -66,6 +69,10 @@ export class MultiAgentOrchestrator {
     cost_usd: number;
     duration_ms?: number;
   }> {
+    // Make sure the global telemetry array is initialized
+    if (!global.multiAgentTelemetry) {
+      global.multiAgentTelemetry = [];
+    }
     return global.multiAgentTelemetry || [];
   }
   
@@ -108,21 +115,20 @@ export class MultiAgentOrchestrator {
    * Initialize the agent registry with all available agents
    */
   private initializeAgents(): void {
-    // Import agent implementations
-    const { 
-      OrchestratorAgent,
-      ArchitectAgent,
-      CoderAgent,
-      TesterAgent,
-      ReviewerAgent
-    } = require('./agents');
-    
-    // Initialize all agents
-    this.agents.set(AgentRole.ORCHESTRATOR, new OrchestratorAgent(this.openai));
-    this.agents.set(AgentRole.ARCHITECT, new ArchitectAgent(this.openai));
-    this.agents.set(AgentRole.CODER, new CoderAgent(this.openai));
-    this.agents.set(AgentRole.TESTER, new TesterAgent(this.openai));
-    this.agents.set(AgentRole.REVIEWER, new ReviewerAgent(this.openai));
+    // Initialize all agents using the imported classes
+    try {
+      this.agents.set(AgentRole.ORCHESTRATOR, new OrchestratorAgent(this.openai));
+      this.agents.set(AgentRole.ARCHITECT, new ArchitectAgent(this.openai));
+      this.agents.set(AgentRole.CODER, new CoderAgent(this.openai));
+      this.agents.set(AgentRole.TESTER, new TesterAgent(this.openai));
+      this.agents.set(AgentRole.REVIEWER, new ReviewerAgent(this.openai));
+    } catch (error) {
+      log(`Error initializing agents: ${error}`);
+      // Create a fallback orchestrator if initialization fails
+      if (!this.agents.get(AgentRole.ORCHESTRATOR)) {
+        this.agents.set(AgentRole.ORCHESTRATOR, new OrchestratorAgent(this.openai));
+      }
+    }
   }
   
   /**
@@ -321,14 +327,6 @@ export class MultiAgentOrchestrator {
     
     // If agent is not already initialized, create it now
     try {
-      const { 
-        OrchestratorAgent,
-        ArchitectAgent,
-        CoderAgent,
-        TesterAgent,
-        ReviewerAgent
-      } = require('./agents');
-      
       let newAgent: Agent;
       
       switch (role) {
@@ -362,7 +360,6 @@ export class MultiAgentOrchestrator {
       }
       
       // If no orchestrator, create one as a last resort
-      const { OrchestratorAgent } = require('./agents');
       const fallbackAgent = new OrchestratorAgent(this.openai);
       this.agents.set(AgentRole.ORCHESTRATOR, fallbackAgent);
       return fallbackAgent;
@@ -455,16 +452,20 @@ export class MultiAgentOrchestrator {
    * Records telemetry data for model usage
    */
   private recordTelemetry(role: string, tokensIn: number, tokensOut: number, costUsd: number): void {
-    if (global.multiAgentTelemetry) {
-      global.multiAgentTelemetry.push({
-        ts: Date.now(),
-        role,
-        tokens_in: tokensIn,
-        tokens_out: tokensOut,
-        cost_usd: costUsd,
-        duration_ms: 0 // Not tracking duration for these internal records
-      });
+    // Initialize telemetry array if it doesn't exist
+    if (!global.multiAgentTelemetry) {
+      global.multiAgentTelemetry = [];
     }
+    
+    // Record the telemetry data
+    global.multiAgentTelemetry.push({
+      ts: Date.now(),
+      role,
+      tokens_in: tokensIn,
+      tokens_out: tokensOut,
+      cost_usd: costUsd,
+      duration_ms: 0 // Not tracking duration for these internal records
+    });
   }
   
   /**
@@ -475,21 +476,40 @@ export class MultiAgentOrchestrator {
       return;
     }
     
-    // Calculate total tokens and cost
-    const totalTokensIn = this.telemetryData.reduce((sum, item) => sum + item.tokens_in, 0);
-    const totalTokensOut = this.telemetryData.reduce((sum, item) => sum + item.tokens_out, 0);
-    const totalCost = this.telemetryData.reduce((sum, item) => sum + item.cost_usd, 0);
+    // Calculate total tokens and cost with defensive programming
+    const totalTokensIn = this.telemetryData.reduce((sum, item) => 
+      sum + (item && item.tokens_in ? item.tokens_in : 0), 0);
+    const totalTokensOut = this.telemetryData.reduce((sum, item) => 
+      sum + (item && item.tokens_out ? item.tokens_out : 0), 0);
+    const totalCost = this.telemetryData.reduce((sum, item) => 
+      sum + (item && item.cost_usd ? item.cost_usd : 0), 0);
     
-    // Calculate per-role stats
+    // Calculate per-role stats - safely handling undefined roles
     const roleStats = Object.values(AgentRole).reduce((acc: Record<string, any>, role) => {
-      const roleData = this.telemetryData.filter(item => item.role === role.toLowerCase());
-      
-      if (roleData.length > 0) {
-        acc[role] = {
-          tokens_in: roleData.reduce((sum, item) => sum + item.tokens_in, 0),
-          tokens_out: roleData.reduce((sum, item) => sum + item.tokens_out, 0),
-          cost: roleData.reduce((sum, item) => sum + item.cost_usd, 0)
-        };
+      try {
+        // Extra defensive programming to ensure role is defined before using toLowerCase
+        if (role === undefined || role === null) {
+          return acc; // Skip this role if it's undefined or null
+        }
+        
+        // Ensure role is a string before calling toLowerCase
+        const roleStr = typeof role === 'string' ? role.toLowerCase() : String(role).toLowerCase();
+        
+        // Filter telemetry items matching this role
+        const roleData = this.telemetryData.filter(item => 
+          item && item.role && item.role === roleStr
+        );
+        
+        if (roleData && roleData.length > 0) {
+          acc[role] = {
+            tokens_in: roleData.reduce((sum, item) => sum + (item.tokens_in || 0), 0),
+            tokens_out: roleData.reduce((sum, item) => sum + (item.tokens_out || 0), 0),
+            cost: roleData.reduce((sum, item) => sum + (item.cost_usd || 0), 0)
+          };
+        }
+      } catch (error) {
+        // Silently catch any errors to prevent crashing
+        console.error(`Error processing role stats: ${error}`);
       }
       
       return acc;

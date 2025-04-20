@@ -18,19 +18,5 @@ PROJECT_DIR="$SCRIPT_DIR"
 # Build the project first
 (cd "$PROJECT_DIR/codex-cli" && npm run build)
 
-# Check if --two-agent flag is present
-TWO_AGENT_MODE=false
-for arg in "$@"; do
-  if [ "$arg" == "--two-agent" ]; then
-    TWO_AGENT_MODE=true
-    break
-  fi
-done
-
-# Display a banner if in two-agent mode
-if [ "$TWO_AGENT_MODE" == "true" ]; then
-  echo -e "\033[1;32m🏗️ Running Codex with Architect+Coder pipeline\033[0m"
-fi
-
 # Run the local CLI directly
 DEBUG=1 node "$PROJECT_DIR/codex-cli/dist/cli.js" "$@"

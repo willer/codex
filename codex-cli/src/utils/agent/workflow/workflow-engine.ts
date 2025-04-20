@@ -60,7 +60,7 @@ export class WorkflowEngine {
    */
   determineNextAgent(currentState: TaskState, currentRole: AgentRole): AgentRole | null {
     // If the task failed, we need to handle it differently
-    if (currentState.status === "failed") {
+    if (currentState?.status === "failed") {
       return this.handleFailure(currentState, currentRole);
     }
     
@@ -119,7 +119,9 @@ export class WorkflowEngine {
     
     // Mark the current step as failed
     const currentStep = revisedPlan.steps[revisedPlan.currentStepIndex];
-    currentStep.status = "failed";
+    if (currentStep) {
+      currentStep.status = "failed";
+    }
     
     // Add a new step with the suggested role, or default to Orchestrator
     const nextRole = suggestedRole || AgentRole.ORCHESTRATOR;

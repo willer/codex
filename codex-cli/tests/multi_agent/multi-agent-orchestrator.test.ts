@@ -1,6 +1,5 @@
 import { test, expect, vi, beforeEach } from "vitest";
 import { MultiAgentOrchestrator, MultiAgentOrchestratorState } from "../../src/utils/agent/multi-agent-orchestrator";
-import { AgentRole } from "../../src/utils/agent/registry/agent-roles";
 import { ReviewDecision } from "../../src/utils/agent/review";
 import { AutoApprovalMode } from "../../src/utils/auto-approval-mode";
 
@@ -50,7 +49,12 @@ const mockHandlers = {
 // Reset mocks before each test
 beforeEach(() => {
   vi.resetAllMocks();
-  global.multiAgentTelemetry = [];
+  // Initialize global telemetry array
+  if (typeof global.multiAgentTelemetry === 'undefined') {
+    global.multiAgentTelemetry = [];
+  } else {
+    global.multiAgentTelemetry = [];
+  }
 });
 
 test("MultiAgentOrchestrator initializes correctly", () => {
@@ -101,4 +105,29 @@ test("MultiAgentOrchestrator handles a simple request", async () => {
   });
   
   expect(introCall).toBeDefined();
+});
+
+test("MultiAgentOrchestrator handles telemetry safely", () => {
+  // Test that we can safely access telemetry data even if it's undefined
+  delete (global as any).multiAgentTelemetry;
+  
+  const orchestrator = new MultiAgentOrchestrator({
+    config: mockConfig,
+    approvalPolicy: AutoApprovalMode.SUGGEST,
+    ...mockHandlers
+  });
+  
+  // This should create the telemetry array if it doesn't exist
+  const telemetryData = (orchestrator as any).telemetryData;
+  
+  // Should now be an array
+  expect(Array.isArray(telemetryData)).toBe(true);
+  
+  // Record some telemetry data
+  (orchestrator as any).recordTelemetry("test", 100, 50, 0.01);
+  
+  // Should have created the array and added an item
+  expect(global.multiAgentTelemetry).toBeDefined();
+  expect(global.multiAgentTelemetry?.length).toBe(1);
+  expect(global.multiAgentTelemetry?.[0]?.role).toBe("test");
 });
