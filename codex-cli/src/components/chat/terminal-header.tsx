@@ -14,6 +14,7 @@ export interface TerminalHeaderProps {
   agent?: AgentLoop;
   initialImagePaths?: Array<string>;
   flexModeEnabled?: boolean;
+  multiAgentEnabled?: boolean;
 }
 
 const TerminalHeader: React.FC<TerminalHeaderProps> = ({
@@ -26,6 +27,7 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
   agent,
   initialImagePaths,
   flexModeEnabled = false,
+  multiAgentEnabled = false,
 }) => {
   return (
     <>
@@ -35,6 +37,7 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
           ● Codex v{version} – {PWD} – {model} –{" "}
           <Text color={colorsByPolicy[approvalPolicy]}>{approvalPolicy}</Text>
           {flexModeEnabled ? " – flex-mode" : ""}
+          {multiAgentEnabled ? " – multi-agent" : ""}
         </Text>
       ) : (
         <>
@@ -75,6 +78,12 @@ const TerminalHeader: React.FC<TerminalHeaderProps> = ({
               <Text dimColor>
                 <Text color="blueBright">↳</Text> flex-mode:{" "}
                 <Text bold>enabled</Text>
+              </Text>
+            )}
+            {multiAgentEnabled && (
+              <Text dimColor>
+                <Text color="blueBright">↳</Text> multi-agent:{" "}
+                <Text bold color="greenBright">enabled</Text>
               </Text>
             )}
             {initialImagePaths?.map((img, idx) => (

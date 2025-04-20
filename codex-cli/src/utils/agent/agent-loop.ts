@@ -92,6 +92,8 @@ export class AgentLoop {
   private execAbortController: AbortController | null = null;
   /** Set to true when `cancel()` is called so `run()` can exit early. */
   private canceled = false;
+  /** Reference to the multi-agent orchestrator when in multi-agent mode */
+  private multiAgentOrchestrator: any = null;
   /** Function calls that were emitted by the model but never answered because
    *  the user cancelled the run.  We keep the `call_id`s around so the *next*
    *  request can send a dummy `function_call_output` that satisfies the
@@ -128,6 +130,32 @@ export class AgentLoop {
     (
       this.currentStream as { controller?: { abort?: () => void } } | null
     )?.controller?.abort?.();
+
+    // If in multi-agent mode, attempt to gracefully close the multi-agent session
+    if (this.config.multiAgent?.enabled && this.multiAgentOrchestrator) {
+      try {
+        if (typeof this.multiAgentOrchestrator.terminate === 'function') {
+          this.multiAgentOrchestrator.terminate();
+        } else if (typeof this.multiAgentOrchestrator.cancel === 'function') {
+          this.multiAgentOrchestrator.cancel();
+        }
+        
+        // Show a system message indicating the multi-agent system was canceled
+        this.onItem({
+          id: `multi-agent-cancel-${Date.now()}`,
+          type: "message",
+          role: "system",
+          content: [{ 
+            type: "input_text", 
+            text: `🛑 Multi-agent processing canceled.`
+          }],
+        });
+      } catch (error) {
+        if (isLoggingEnabled()) {
+          log(`Error canceling multi-agent orchestrator: ${error}`);
+        }
+      }
+    }
 
     this.canceled = true;
 
@@ -190,6 +218,22 @@ export class AgentLoop {
     }
     this.terminated = true;
 
+    // If in multi-agent mode, terminate the orchestrator
+    if (this.config.multiAgent?.enabled && this.multiAgentOrchestrator) {
+      try {
+        if (typeof this.multiAgentOrchestrator.terminate === 'function') {
+          this.multiAgentOrchestrator.terminate();
+        }
+      } catch (error) {
+        if (isLoggingEnabled()) {
+          log(`Error terminating multi-agent orchestrator: ${error}`);
+        }
+      }
+      
+      // Clear the reference
+      this.multiAgentOrchestrator = null;
+    }
+
     this.hardAbort.abort();
 
     this.cancel();
@@ -240,6 +284,14 @@ export class AgentLoop {
     this.getCommandConfirmation = getCommandConfirmation;
     this.onLastResponseId = onLastResponseId;
     this.sessionId = getSessionId() || randomUUID().replaceAll("-", "");
+    
+    // Check if we're in multi-agent mode - if yes, we'll use a different approach
+    const useMultiAgent = this.config.multiAgent?.enabled === true;
+    
+    if (useMultiAgent && isLoggingEnabled()) {
+      log("[AgentLoop] Initialized in multi-agent mode");
+    }
+    
     // Configure OpenAI client with optional timeout (ms) from environment
     const timeoutMs = OPENAI_TIMEOUT_MS;
     const apiKey = this.config.apiKey ?? process.env["OPENAI_API_KEY"] ?? "";
@@ -270,6 +322,75 @@ export class AgentLoop {
       () => this.execAbortController?.abort(),
       { once: true },
     );
+    
+    // Initialize multi-agent orchestrator if enabled
+    if (useMultiAgent) {
+      // Show welcome message for multi-agent mode
+      this.onItem({
+        id: `multi-agent-welcome-${Date.now()}`,
+        type: "message",
+        role: "system",
+        content: [{ 
+          type: "input_text", 
+          text: `🤖 Multi-agent mode active! Your requests will be processed by specialized AI agents working together: Orchestrator, Architect, Coder, Tester, and Reviewer.`
+        }],
+      });
+      try {
+        // We'll lazy-load the multi-agent orchestrator to avoid issues if files are missing
+        import('./multi-agent/orchestrator').then(({ MultiAgentOrchestrator }) => {
+          this.multiAgentOrchestrator = new MultiAgentOrchestrator({
+            config: this.config,
+            sessionId: this.sessionId,
+            onResponse: (response: string) => {
+              this.onItem({
+                id: `multi-agent-${Date.now()}`,
+                type: "message",
+                role: "assistant",
+                content: [{ type: "output_text", text: response }],
+              });
+            },
+            onStateChange: (state) => {
+              if (isLoggingEnabled()) {
+                log(`[MultiAgent] State changed: ${state.status}, step ${state.currentStep}/${state.totalSteps}`);
+              }
+            },
+            onStepCompleted: (role, output) => {
+              if (isLoggingEnabled()) {
+                log(`[MultiAgent] Step completed by ${role}`);
+              }
+              
+              // Only notify for important transitions
+              if (role !== "orchestrator") {
+                this.onItem({
+                  id: `multi-agent-step-${Date.now()}`,
+                  type: "message",
+                  role: "system",
+                  content: [{ 
+                    type: "input_text", 
+                    text: `✓ ${role.charAt(0).toUpperCase() + role.slice(1)} agent completed its task`
+                  }],
+                });
+              }
+            }
+          });
+          
+          // Initialize the agents
+          this.multiAgentOrchestrator.initialize();
+          
+          if (isLoggingEnabled()) {
+            log("[AgentLoop] Multi-agent orchestrator initialized");
+          }
+        }).catch(error => {
+          if (isLoggingEnabled()) {
+            log(`[AgentLoop] Failed to initialize multi-agent orchestrator: ${error}`);
+          }
+        });
+      } catch (error) {
+        if (isLoggingEnabled()) {
+          log(`[AgentLoop] Error initializing multi-agent orchestrator: ${error}`);
+        }
+      }
+    }
   }
 
   private async handleFunctionCall(
@@ -394,6 +515,114 @@ export class AgentLoop {
       if (this.terminated) {
         throw new Error("AgentLoop has been terminated");
       }
+      
+      // Check if we're in multi-agent mode and the orchestrator is initialized
+      if (this.config.multiAgent?.enabled && this.multiAgentOrchestrator) {
+        // Extract the user message from input
+        let userMessage = "";
+        for (const item of input) {
+          if (item.type === "message" && item.role === "user") {
+            const content = item.content;
+            if (Array.isArray(content)) {
+              for (const c of content) {
+                if (c.type === "input_text") {
+                  userMessage += c.text;
+                }
+              }
+            }
+          }
+        }
+        
+        // If there's no user message, try to find other content to use
+        if (!userMessage) {
+          const firstItem = input[0];
+          if (firstItem && typeof firstItem === 'object') {
+            // Try to extract some useful text from the input
+            if ('content' in firstItem && Array.isArray(firstItem.content)) {
+              for (const c of firstItem.content) {
+                if (c.type === "input_text") {
+                  userMessage += c.text;
+                }
+              }
+            }
+          }
+        }
+        
+        if (userMessage) {
+          // Let the user know we're processing with the multi-agent system
+          this.onItem({
+            id: `multi-agent-start-${Date.now()}`,
+            type: "message",
+            role: "system",
+            content: [{ 
+              type: "input_text",
+              text: `🔄 Processing through multi-agent system...`
+            }],
+          });
+          
+          // Signal that we're loading
+          this.onLoading(true);
+          
+          try {
+            // Check if the orchestrator is properly initialized
+            if (!this.multiAgentOrchestrator) {
+              throw new Error("Multi-agent orchestrator not properly initialized");
+            }
+            
+            // Initialize repository context if needed
+            if (typeof this.multiAgentOrchestrator.initializeRepoContext === 'function') {
+              this.multiAgentOrchestrator.initializeRepoContext();
+            }
+            
+            // Use the multi-agent orchestrator to handle the request
+            await this.multiAgentOrchestrator.executeRequest(userMessage);
+            
+            // Signal that we're done loading
+            this.onLoading(false);
+            
+            // Successfully processed with multi-agent, no need to continue with standard processing
+            return;
+          } catch (error) {
+            // Log the error for debugging
+            if (isLoggingEnabled()) {
+              log(`[AgentLoop] Multi-agent error: ${error instanceof Error ? error.message : String(error)}`);
+              if (error instanceof Error && error.stack) {
+                log(`[AgentLoop] Stack trace: ${error.stack}`);
+              }
+            }
+            
+            // Show error to user
+            this.onItem({
+              id: `multi-agent-error-${Date.now()}`,
+              type: "message",
+              role: "system",
+              content: [{ 
+                type: "input_text", 
+                text: `Error in multi-agent processing: ${error instanceof Error ? error.message : String(error)}`
+              }],
+            });
+            
+            // Add a fallback message suggesting standard mode
+            this.onItem({
+              id: `multi-agent-fallback-${Date.now()}`,
+              type: "message",
+              role: "system",
+              content: [{ 
+                type: "input_text", 
+                text: `Falling back to standard mode. You can disable multi-agent mode by editing ~/.codex/config.json or using 'codex' without the --multi-agent flag.`
+              }],
+            });
+            
+            this.onLoading(false);
+            
+            // Continue with standard processing by NOT returning here
+            // Just fall through to the standard processing code below
+          }
+        }
+      }
+      
+      // If we're not in multi-agent mode or it failed to initialize, fall back to standard behavior
+      
       // Record when we start "thinking" so we can report accurate elapsed time.
       const thinkingStart = Date.now();
       // Bump generation so that any late events from previous runs can be
@@ -492,13 +721,6 @@ export class AgentLoop {
         const MAX_RETRIES = 5;
         for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
           try {
-            let reasoning: Reasoning | undefined;
-            if (this.model.startsWith("o")) {
-              reasoning = { effort: "high" };
-              if (this.model === "o3" || this.model === "o4-mini") {
-                reasoning.summary = "auto";
-              }
-            }
             const mergedInstructions = [prefix, this.instructions]
               .filter(Boolean)
               .join("\n");
@@ -515,7 +737,6 @@ export class AgentLoop {
               input: turnInput,
               stream: true,
               parallel_tool_calls: false,
-              reasoning,
               ...(this.config.flexMode ? { service_tier: "flex" } : {}),
               tools: [
                 {

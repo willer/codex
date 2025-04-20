@@ -479,6 +479,7 @@ export default function TerminalChat({
               agent,
               initialImagePaths,
               flexModeEnabled: Boolean(config.flexMode),
+              multiAgentEnabled: Boolean(config.multiAgent?.enabled),
             }}
           />
         ) : (

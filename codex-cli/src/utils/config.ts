@@ -58,6 +58,12 @@ export type StoredConfig = {
   };
   /** User-defined safe commands */
   safeCommands?: Array<string>;
+  /** Multi-agent configuration */
+  multiAgent?: {
+    enabled?: boolean;
+    models?: Record<string, string>;
+    enabledRoles?: Record<string, boolean>;
+  };
 };
 
 // Minimal config written on first run.  An *empty* model string ensures that
@@ -92,6 +98,12 @@ export type AppConfig = {
   };
   /** User-defined safe commands */
   safeCommands?: Array<string>;
+  /** Multi-agent configuration */
+  multiAgent?: {
+    enabled: boolean;
+    models: Record<string, string>;
+    enabledRoles: Record<string, boolean>;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -279,6 +291,15 @@ export const loadConfig = (
     approvalMode: storedConfig.approvalMode,
     safeCommands: storedConfig.safeCommands ?? [],
   };
+  
+  // Add multi-agent configuration if present
+  if (storedConfig.multiAgent !== undefined) {
+    config.multiAgent = {
+      enabled: storedConfig.multiAgent.enabled === true,
+      models: storedConfig.multiAgent.models || {},
+      enabledRoles: storedConfig.multiAgent.enabledRoles || {}
+    };
+  }
 
   // -----------------------------------------------------------------------
   // First‑run bootstrap: if the configuration file (and/or its containing
@@ -407,6 +428,15 @@ export const saveConfig = (
   // Save: User-defined safe commands
   if (config.safeCommands && config.safeCommands.length > 0) {
     configToSave.safeCommands = config.safeCommands;
+  }
+  
+  // Save multi-agent configuration if it exists
+  if (config.multiAgent) {
+    configToSave.multiAgent = {
+      enabled: config.multiAgent.enabled,
+      models: config.multiAgent.models,
+      enabledRoles: config.multiAgent.enabledRoles
+    };
   }
 
   if (ext === ".yaml" || ext === ".yml") {

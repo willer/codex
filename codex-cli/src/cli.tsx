@@ -13,6 +13,7 @@ import type { ResponseItem } from "openai/resources/responses/responses";
 
 import App from "./app";
 import { runSinglePass } from "./cli-singlepass";
+import { runMultiAgent } from "./cli-multiagent";
 import { AgentLoop } from "./utils/agent/agent-loop";
 import { initLogger } from "./utils/agent/log";
 import { ReviewDecision } from "./utils/agent/review";
@@ -73,6 +74,15 @@ const cli = meow(
 
     --flex-mode               Use "flex-mode" processing mode for the request (only supported
                               with models o3 and o4-mini)
+
+    --multi-agent             Enable multi-agent mode which uses multiple specialized agents
+                              with different models for different tasks.
+    --architect-model <model> Specify model to use for the architect agent
+    --coder-model <model>     Specify model to use for the coder agent
+    --disable-architect       Disable the architect agent
+    --disable-coder           Disable the coder agent
+    --disable-tester          Disable the tester agent
+    --disable-reviewer        Disable the reviewer agent
 
   Dangerous options
     --dangerously-auto-approve-everything
@@ -147,6 +157,43 @@ const cli = meow(
         type: "boolean",
         description:
           "Enable the flex-mode service tier (only supported by models o3 and o4-mini)",
+      },
+      multiAgent: {
+        type: "boolean", 
+        description:
+          "Enable multi-agent mode which uses multiple specialized agents with different models",
+      },
+      architectModel: {
+        type: "string",
+        description: "Model to use for the architect agent",
+      },
+      coderModel: {
+        type: "string", 
+        description: "Model to use for the coder agent",
+      },
+      testerModel: {
+        type: "string",
+        description: "Model to use for the tester agent", 
+      },
+      reviewerModel: {
+        type: "string",
+        description: "Model to use for the reviewer agent",
+      },
+      disableArchitect: {
+        type: "boolean",
+        description: "Disable the architect agent", 
+      },
+      disableCoder: {
+        type: "boolean",
+        description: "Disable the coder agent",
+      },
+      disableTester: {
+        type: "boolean", 
+        description: "Disable the tester agent",
+      },
+      disableReviewer: {
+        type: "boolean",
+        description: "Disable the reviewer agent",
       },
       fullStdout: {
         type: "boolean",
@@ -262,6 +309,56 @@ config = {
   notify: Boolean(cli.flags.notify),
 };
 
+// Handle multi-agent mode configuration
+const multiAgentEnabled = Boolean(cli.flags.multiAgent);
+if (multiAgentEnabled || (config.multiAgent && config.multiAgent.enabled)) {
+  // Initialize multi-agent config if not present
+  if (!config.multiAgent) {
+    config.multiAgent = {
+      enabled: true,
+      models: {},
+      enabledRoles: {
+        orchestrator: true,
+        architect: true,
+        coder: true,
+        tester: true,
+        reviewer: true
+      }
+    };
+  } else {
+    // Ensure it's enabled if the flag is set
+    config.multiAgent.enabled = true;
+  }
+  
+  // Override models from CLI flags
+  if (cli.flags.architectModel) {
+    config.multiAgent.models.architect = String(cli.flags.architectModel);
+  }
+  if (cli.flags.coderModel) {
+    config.multiAgent.models.coder = String(cli.flags.coderModel);
+  }
+  if (cli.flags.testerModel) {
+    config.multiAgent.models.tester = String(cli.flags.testerModel);
+  }
+  if (cli.flags.reviewerModel) {
+    config.multiAgent.models.reviewer = String(cli.flags.reviewerModel);
+  }
+  
+  // Handle agent disabling
+  if (cli.flags.disableArchitect) {
+    config.multiAgent.enabledRoles.architect = false;
+  }
+  if (cli.flags.disableCoder) {
+    config.multiAgent.enabledRoles.coder = false;
+  }
+  if (cli.flags.disableTester) {
+    config.multiAgent.enabledRoles.tester = false;
+  }
+  if (cli.flags.disableReviewer) {
+    config.multiAgent.enabledRoles.reviewer = false;
+  }
+}
+
 // Check for updates after loading config
 // This is important because we write state file in the config dir
 await checkForUpdates().catch();
@@ -319,6 +416,8 @@ if (fullContextMode) {
   onExit();
   process.exit(0);
 }
+
+// For multi-agent mode, we don't need to exit early - it's integrated into terminal-chat
 
 // Ensure that all values in additionalWritableRoots are absolute paths.
 const additionalWritableRoots: ReadonlyArray<string> = (
